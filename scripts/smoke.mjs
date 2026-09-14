@@ -202,27 +202,28 @@ for (let i = 0; i < 60; i++) {
   check('S-удержание: жив, в PLAYING (не улетел в небытие)', samples[samples.length - 1].phase === 'PLAYING' && samples[samples.length - 1].hp > 0);
 }
 
-// ---------- 3.7 зум колесом ----------
+// ---------- 3.7 зум: раслёт до максимума + разблокировка колеса ----------
 {
-  const z0 = (await peek()).zoom;
-  check('старт рана: камера начала близко и раскрывается (zoom→1)', z0 > 0.6 && z0 < 1.25, `zoom=${z0.toFixed(2)}`);
-  await page.mouse.wheel(0, 500); await page.mouse.wheel(0, 500); await page.mouse.wheel(0, 500); // много вниз — макс
+  // controlLock уже выдержан выше — раслёт (2.0 игровых сек) завершён на максимуме
+  const z1 = (await peek()).zoom;
+  check('старт рана: за 2с камера разлетелась до МАКСИМУМА', z1 > 2.4, `zoom=${z1.toFixed(2)}`);
+  for (let k = 0; k < 6; k++) { await page.mouse.wheel(0, -300); await sleep(120); } // приближение
+  let zIn = z1;
   for (let i = 0; i < 20; i++) {
-    const s = await peek();
-    if (s.zoom > 2.5) break;
+    zIn = (await peek()).zoom;
+    if (zIn < 1.5) break;
     await sleep(300);
   }
-  const zMax = (await peek()).zoom;
-  check('колесо вниз — отдаление, упор в ZOOM_MAX', zMax > 2.4 && zMax <= 2.75, `zoom=${zMax.toFixed(2)}`);
-  for (let k = 0; k < 8; k++) await page.mouse.wheel(0, -500); // много вверх — мин
+  check('колесо вверх — приближение камеры', zIn < 1.5, `zoom=${zIn.toFixed(2)}`);
+  for (let k = 0; k < 4; k++) { await page.mouse.wheel(0, 500); await sleep(120); } // отдаление
+  let zOut = zIn;
   for (let i = 0; i < 20; i++) {
-    const s = await peek();
-    if (s.zoom < 0.45) break;
+    zOut = (await peek()).zoom;
+    if (zOut > 2.4) break;
     await sleep(300);
   }
-  const zMin = (await peek()).zoom;
-  check('колесо вверх — приближение, упор в ZOOM_MIN', zMin < 0.46 && zMin >= 0.3, `zoom=${zMin.toFixed(2)}`);
-  // вернуть штатный зум для следующих секций
+  check('колесо вниз — отдаление до упора (ZOOM_MAX)', zOut > 2.4 && zOut <= 2.75, `zoom=${zOut.toFixed(2)}`);
+  // вернуть штатный старт для следующих секций
   await page.evaluate(() => { window.__GK.debugStartRun(14); });
   await sleep(600);
 }
@@ -238,7 +239,8 @@ for (let i = 0; i < 30; i++) {
   if (st.redTouched > 0) break;
   await sleep(300);
 }
-check('дух: касание засчитано (hp < 100, redTouched>0)', st.redTouched > 0 && st.hp < 100, `hp=${st.hp}`);
+check('дух: касание = проклятие БЕЗ урона (hp=100, redTouched>0, cursed)',
+  st.redTouched > 0 && st.hp === 100 && st.curseTimer > 0, `hp=${st.hp} curse=${st.curseTimer?.toFixed(2)}`);
 for (let i = 0; i < 120; i++) {
   st = await peek();
   if (st.lidOpen > 0.7) break;
@@ -276,6 +278,23 @@ check('BEAM: урон по игроку', hpDuringBeam !== null && hpDuringBeam 
     await sleep(300);
   }
   check('повторный залп: голова НЕ залипает в COOLDOWN (FIRE>=2)', refire, `visits.FIRE=${st.gazeVisits?.FIRE}`);
+}
+
+// ---------- 5.6 золотая волна: подбор → испепеление ближайших красных ----------
+{
+  await page.evaluate(() => window.__GK.debugHeal());
+  // 6 духов кольцом в 40 м от игрока (< радиуса волны 60)
+  await page.evaluate(() => window.__GK.debugRedsRing(6, 40));
+  await sleep(400);
+  const before = (await peek()).reds;
+  await page.evaluate(() => window.__GK.debugGoldNearPlayer());
+  let after = before;
+  for (let i = 0; i < 20; i++) {
+    await sleep(250);
+    after = (await peek()).reds;
+    if (after <= before - 3) break;
+  }
+  check('золотая волна испепеляет ближайших духов', after <= before - 3, `reds ${before} -> ${after}`);
 }
 
 // ---------- 6. near-miss/escape ----------

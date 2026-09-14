@@ -2,7 +2,7 @@
 
 ## Стек
 TypeScript 5.9 strict · Vite 7 · three 0.180 (+@types/three) · EffectComposer-пост ·
-WebAudio-процедур · vitest 3.2 (42 теста) · playwright-core + системный Chrome (smoke).
+WebAudio-процедур · vitest 3.2 (43 теста) · playwright-core + системный Chrome (smoke).
 npm в песочнице: `--cache ./.npm-cache --ignore-scripts`.
 
 ## Архитектура
@@ -16,11 +16,13 @@ npm в песочнице: `--cache ./.npm-cache --ignore-scripts`.
 луч — BeamSystem (V-цилиндры, логическая ось с ограниченным доворотом, hitAngle).
 Оркестрация — Game.ts (состояния INTRO/PLAYING/PAUSED/DYING/GAMEOVER, timeScale,
 сглаженные FX-униформы в финальный пост-шейдер). Пулинг: меши душ + кольцевой буфер
-частиц 2600. QA-хуки окна: `window.__GK` (debugPeek/teleport/faceGaze/spirit/kill/heal).
+частиц 2600. QA-хуки окна: `window.__GK` (debugPeek/teleport/faceGaze/spirit/goldNearPlayer/
+redsRing/kill/heal/playerDir; в peek — cursed, curseTimer, reds).
 КАСАТЕЛЬНЫЙ БАЗИС ВВОДА — внутри PlayerController (upRef, параллельный перенос
 вдоль траектории). КАМЕРА берёт up оттуда же; никогда не наоборот: базис из
 камерного quaternion давал петлю обратной связи («водоворот» при удержании S).
-Камера радиально-догоняющая, зум колесом (CAM.ZOOM_*; старт рана ZOOM_START→1 плавно).
+Камера радиально-догоняющая, зум колесом (CAM.ZOOM_*; старт рана: за 2s разлёт
+MIN→MAX (easeOutCubic), controlLock, колесо глухо до конца раслёта; потом zoomTarget=MAX).
 Скорости игрока/духов — УГЛОВЫЕ (rad/s) → смена радиуса орбиты не ломает ритм.
 Луч: beamTurnSpeed НИЖЕ игроцких 0.14/0.266/0.336 (убеждаемость), headTrack ≤0.30;
 COOLDOWN выходит по таймеру (НЕ по dot — голова-трекер держит dot≈1 → был дедлок
@@ -34,19 +36,26 @@ COOLDOWN выходит по таймеру (НЕ по dot — голова-тр
 - src/head/* — черчение лица, веки-риг, трекинг, луч
 - src/render/Renderer.ts — композер + FINAL_SHADER (teal-orange, vignette, grain, CA,
   redPulse-к-краям, whiteFlash, heat)
-- scripts/smoke.mjs — приёмочный прогон §59 (32 проверки) с декодом PNG-пикселей
+- scripts/smoke.mjs — приёмочный прогон §59 (33 проверки) с декодом PNG-пикселей
 - tests/*.test.ts — орбита/трекинг/gaze/difficulty/score/rng/fsm + инварианты
   PlayerController (сфера R при 6000 кадров, анти-спираль большой окружности, полюса)
 
 ## Прогресс
 ✅ Полный цикл работает в браузере: интро→раслёт камеры→сбор→дух→пробуждение→взгляд→
 LOCK→CHARGE→BEAM (урон)→escape→СМЕРТЬ (залпы повторяются)→GAME OVER→рестарт.
-Smoke 32/32 PASS (реальные клики, зум-упоры, регрессии водоворота и повторного залпа),
-консоль чистая. 42/42 юнит-тестов. tsc чистый, vite build OK (~162 KB gzip JS).
-БАЛАНС v2/v3 (по фидбеку юзера): голова 80м / орбита 240м / камера 26м + зум колесом
-0.35–2.6× (старт рана — раслёт) / COLLECT_RADIUS 12 / души визуально уменьшены;
-мышь-обзор, beamDodge, пьедестал-«шея» удалены; луч убегаем (turn<скорости игрока);
-гало душ — круглые glow-текстуры. W/S-инверсия исправлена; per-frame аллокации вычищены.
+Smoke 33/33 PASS (реальные клики, зум-раслёт/упоры, регрессии водоворота, повторного
+залпа, золотой волны), консоль чистая. 43/43 юнит-тестов. tsc чистый, vite build OK.
+БАЛАНС v4 (по фидбеку юзера): спавн ×2 кроме золота (PHASES blue28-60/green8-14/red4-56,
+MAX_BLUE60/GREEN14/RED56, POOL.MAX_ENTITIES=170); зелёные лечат 7 (PLAYER.HEAL_GREEN);
+красных больше со временем; КРАСНЫЙ НЕ СНИМАЕТ HP — крадёт тягу: PlayerController.curseTimer
+(PLAYER.CURSE_DURATION=2.4s, CURSE_SLOW=0.5, блок Shift/рывок), HUD гасит шкалу тяги
+(.gk-bar.boost.cursed); духи преследуют в поле зрения (SoulField: angToPlayer<RED_CHASE_CONE,
+поводок cone×1.7, redChaseChance=danger×0.35); скорость красных растёт с danger
+(RED_SPEED_BASE 0.045→MAX 0.13 < дэш 0.336); dangerScore вес красных 0.85 (1−e^−red/10) →
+чем больше собрано, тем быстрее голова; ЗОЛОТО→fireGoldWave: кольцо createShockRingMaterial
+(GOLD_WAVE.RADIUS=60) + field.purgeRedsNear + по +75 за духа. старт зум=MIN→за 2s до MAX.
+v2/v3: голова 80м / орбита 240м / камера 26м + зум 0.35–2.6×; мышь-обзор, beamDodge,
+пьедестал-«шея» удалены; луч убегаем (turn<скорости игрока); гало — круглые glow-текстуры.
 Dev-порт 5199 (5173 занят nebula-rush в этом воркспейсе; vite жёстко на 127.0.0.1).
 
 ## Баг-реестр (важно)

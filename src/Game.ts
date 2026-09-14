@@ -5,7 +5,7 @@
  * INTRO → PLAYING ⇄ PAUSED → DYING → GAMEOVER → (PLAYING)
  * Внутри PLAYING голова: СОН → ПРОБУЖДЕНИЕ → ТРЕКИНГ; взгляд: GazeSystem-фазы.
  */
-import { Group, Vector3, Color } from 'three';
+import { Group, Vector3, Color, Mesh, RingGeometry, ShaderMaterial } from 'three';
 import { Renderer } from './render/Renderer';
 import { World } from './world/World';
 import { CameraRig } from './core/CameraRig';
@@ -28,7 +28,8 @@ import { Awakening } from './game/Awakening';
 import { dangerScore, headTrackSpeed, eyeTrackSpeed, beamDamage, beamTurnSpeed } from './game/Difficulty';
 import { mulberry32, seedLabel } from './math/rng';
 import { damp, clamp, clamp01, smoothstep } from './math/Tracking';
-import { PLAYER, HEAD, WORLD, CAM, SCORE, DIFFICULTY, QUALITY_PRESETS, type QualityLevel } from './constants';
+import { createShockRingMaterial } from './render/Shaders';
+import { PLAYER, HEAD, WORLD, CAM, SCORE, DIFFICULTY, GOLD_WAVE, QUALITY_PRESETS, type QualityLevel } from './constants';
 
 export type Phase = 'INTRO' | 'PLAYING' | 'PAUSED' | 'DYING' | 'GAMEOVER';
 
@@ -116,6 +117,11 @@ export class Game {
   private whiteFlash = 0;
   private heat = 0;
   private timeScale = 1;
+  /** золотая ударная волна: кольцо, растущее из точки подбора */
+  private waveRing!: Mesh;
+  private waveMat!: ShaderMaterial;
+  private waveT = -1; // сек с момента запуска волны; <0 — не активна
+  private waveOrigin = new Vector3();
   private nearMissSlowmo = 0;
   private lastHurtSource: 'beam' | 'spirit' = 'beam';
 
@@ -154,6 +160,13 @@ export class Game {
 
     this.fieldRoot = new Group();
     this.world.scene.add(this.fieldRoot);
+    // кольцо золотой волны (геометрия единичная, масштабом управляем)
+    this.waveMat = createShockRingMaterial();
+    this.waveMat.uniforms.uColor.value = new Color('#ffd873');
+    this.waveRing = new Mesh(new RingGeometry(0.8, 1.0, 72), this.waveMat);
+    this.waveRing.visible = false;
+    this.waveRing.renderOrder = 12;
+    this.world.scene.add(this.waveRing);
     this.seed = (Date.now() ^ (performance.now() * 1000)) >>> 0;
     this.rng = mulberry32(this.seed);
     this.field = new SoulField(this.fieldRoot, this.rng);
@@ -255,10 +268,13 @@ export class Game {
     this.heat = 0;
     this.awakenPull = 0;
     this.dyingT = 0;
-    // старт: камера близко, «раскрывается» назад плавно — игра начинается на разлёте
-    this.zoom = CAM.ZOOM_START;
-    this.zoomTarget = 1;
-    this.controlLock = 2.2;
+    // старт: камера у самого игрока (zoom=MIN) → за ZOOM_INTRO_TIME сек разлёт
+    // до МАКСИМУМА (easeOutCubic); колесо разблокируется после раслёта
+    this.zoom = CAM.ZOOM_MIN;
+    this.zoomTarget = CAM.ZOOM_MAX;
+    this.controlLock = CAM.ZOOM_INTRO_TIME;
+    this.waveT = -1;
+    this.waveRing.visible = false;
     this.hintShowTimer = 8;
     this.hud.setHintVisible(true);
     this.screens.hideOver();
@@ -344,14 +360,19 @@ export class Game {
     // Камера в формировании базиса НЕ участвует — иначе её инерция/pull-к-голове
     // поворачивают направление тяги и рожают self-feedback «вечный вираж».
     const frame = this.input.read();
-    if (frame.zoomStep !== 0) {
-      this.zoomTarget = clamp(this.zoomTarget + frame.zoomStep * CAM.ZOOM_STEP, CAM.ZOOM_MIN, CAM.ZOOM_MAX);
-    }
-    // на старте — медленный «раслёт» назад; ручной зум — отзывчивый
-    const zRate = this.controlLock > 0 ? CAM.ZOOM_IN_RATE : 7;
-    this.zoom = damp(this.zoom, this.zoomTarget, zRate, rdt);
+    // стартовый раслёт: первые ZOOM_INTRO_TIME сек камера летит от MIN к MAX,
+    // колесо в это время Глухо; после — разблокировано (стартует с МАКСИМУМА)
     if (this.controlLock > 0) {
-      this.controlLock -= rdt;
+      this.controlLock = Math.max(0, this.controlLock - rdt);
+      const p = 1 - this.controlLock / CAM.ZOOM_INTRO_TIME;
+      const e = 1 - (1 - p) * (1 - p) * (1 - p); // easeOutCubic
+      this.zoom = CAM.ZOOM_MIN + (CAM.ZOOM_MAX - CAM.ZOOM_MIN) * e;
+      this.zoomTarget = this.zoom;
+    } else {
+      if (frame.zoomStep !== 0) {
+        this.zoomTarget = clamp(this.zoomTarget + frame.zoomStep * CAM.ZOOM_STEP, CAM.ZOOM_MIN, CAM.ZOOM_MAX);
+      }
+      this.zoom = damp(this.zoom, this.zoomTarget, 7, rdt);
     }
     let inx = frame.x, iny = frame.y, inBoost = frame.boost && playing, inDash = frame.dashEdge && playing;
     if (this.controlLock > 0) {
@@ -531,6 +552,20 @@ export class Game {
     // ---- world/particles/hud ----
     this.world.update(rdt, this.rig.cam.position);
     this.fx.update(sdt);
+    // золотая ударная волна: биллборд-кольцо, растущее до GOLD_WAVE.RADIUS
+    if (this.waveT >= 0) {
+      this.waveT += rdt;
+      const k = this.waveT / GOLD_WAVE.DURATION;
+      if (k >= 1) { this.waveT = -1; this.waveRing.visible = false; this.waveMat.uniforms.uOpacity.value = 0; }
+      else {
+        const e = 1 - (1 - k) * (1 - k); // easeOut — быстрый старт
+        this.waveRing.scale.setScalar(4 + GOLD_WAVE.RADIUS * e);
+        this.waveMat.uniforms.uOpacity.value = (1 - k) * 0.9;
+        this.waveRing.quaternion.copy(this.rig.cam.quaternion); // лицом к камере
+        // волна «выталкивает» точку наружу от центра головы
+        this.waveRing.position.copy(this.waveOrigin).multiplyScalar(1 + k * 0.12);
+      }
+    }
     this.updateFxUniforms(rdt, gaze01, this.beam.intensity);
     this.hud.update({
       score: this.score.score, best: this.score.best, mult: this.score.mult,
@@ -542,6 +577,7 @@ export class Game {
         firing: this.gaze.phase === GazePhase.FIRE,
       },
       danger01: this.danger, timeSec: this.runTime, seedLabel: seedLabel(this.seed),
+      cursed: this.pc.cursed,
     }, rdt);
     this.hud.updateFloaters(rdt);
     if (this.hintShowTimer > 0) {
@@ -599,7 +635,7 @@ export class Game {
   private onCollect(s: import('./souls/Soul').SoulData, playerPos: Vector3): void {
     this.soulsCollected++;
     if (s.kind === 'green') {
-      const healed = this.health.heal(12);
+      const healed = this.health.heal(PLAYER.HEAL_GREEN);
       this.score.greenCollected(SCORE.GREEN);
       this.hud.float(`+${Math.round(healed)} ЖИЗНЬ`, 'heal', s.pos, this.rig.cam);
       this.audio.collectGreen();
@@ -610,7 +646,8 @@ export class Game {
       const prevMult = this.score.mult;
       const gained = this.score.blueCollected(s.large, s.kind === 'gold');
       this.hud.float(`+${gained}`, s.kind === 'gold' ? 'gold' : 'score', s.pos, this.rig.cam);
-      if (s.kind === 'gold') this.audio.collectGold(); else this.audio.collectBlue(s.large);
+      if (s.kind === 'gold') { this.audio.collectGold(); this.fireGoldWave(s.pos); }
+      else this.audio.collectBlue(s.large);
       const c = s.kind === 'gold' ? [1.5, 1.1, 0.3] : [0.25, 1.1, 1.5];
       this.fx.burst(s.pos, s.large || s.kind === 'gold' ? 34 : 22, 1.0, 0.55, s.large ? 7 : 5, c[0], c[1], c[2], 15);
       if (this.score.mult > prevMult) {
@@ -622,6 +659,26 @@ export class Game {
     void playerPos;
   }
 
+  /** ЗОЛОТО: круговая волна — испепеляет ближайших красных духов, щит на мгновение */
+  private fireGoldWave(pos: Vector3): void {
+    const killed = this.field.purgeRedsNear(pos, GOLD_WAVE.RADIUS);
+    this.waveT = 0;
+    this.waveOrigin.copy(pos).normalize().multiplyScalar(WORLD.ORBIT_RADIUS);
+    this.waveRing.position.copy(this.waveOrigin);
+    this.waveRing.visible = true;
+    this.audio.blip(180, 0.4, 0.35);
+    this.trauma = Math.max(this.trauma, 0.3);
+    this.whiteFlash = Math.max(this.whiteFlash, 0.12);
+    if (killed > 0) {
+      this.hud.banner(`ВОЛНА ИСПЕПЕЛИЛА ×${killed}`);
+      this.score.purgedSpirits(killed);
+      // мини-взрывы на месте уничтоженных
+      for (let i = 0; i < killed; i++) {
+        this.fx.burst(pos, 24, 2.2, 1.0, 7, 1.8, 0.4, 0.1, 14);
+      }
+    }
+  }
+
   private onSpiritTouched(s: import('./souls/Soul').SoulData, playerPos: Vector3, playing: boolean): void {
     this.redTouched++;
     this.audio.spiritHit();
@@ -630,9 +687,10 @@ export class Game {
     this.hitFlash = 1;
     if (playing) {
       this.score.spiritScore();
-      this.score.damageTaken();
-      const applied = this.health.damage(6);
-      if (applied > 0 && this.health.dead) this.beginDeath();
+      this.score.damageTaken(); // сброс комбо — контакт всё ещё «дорог»
+      // КРАСНЫЙ ДУХ НЕ СНИМАЕТ HP: крадёт тягу — замедление + запрет SHIFT/рывка.
+      this.pc.curse(PLAYER.CURSE_DURATION);
+      this.hud.float('ЗАМЕДЛЕНИЕ', 'danger', s.pos, this.rig.cam);
     }
     if (!this.head.awakening.active && !this.head.awakening.finished) {
       // ПЕРВЫЙ ДУХ — ПРОБУЖДЕНИЕ
@@ -732,6 +790,25 @@ export class Game {
   debugSpiritNearPlayer(): void {
     this.field.debugSpiritAt(this.pc.position(new Vector3(), WORLD.ORBIT_RADIUS));
   }
+  /** QA: золото прямо у игрока (подбор → золотая волна) */
+  debugGoldNearPlayer(): void {
+    this.field.debugKindAt('gold', this.pc.position(new Vector3(), WORLD.ORBIT_RADIUS));
+  }
+  /** QA: N духов по кругу на радиусе dist от игрока (для проверки волны) */
+  debugRedsRing(n: number, dist: number): void {
+    const center = this.pc.position(new Vector3(), WORLD.ORBIT_RADIUS);
+    const a = new Vector3().copy(this.pc.d).cross(new Vector3(0, 1, 0)).normalize();
+    if (!isFinite(a.x + a.y + a.z) || a.lengthSq() < 1e-6) a.set(1, 0, 0);
+    const b = new Vector3().copy(this.pc.d).cross(a).normalize();
+    for (let i = 0; i < n; i++) {
+      const ang = (i / n) * Math.PI * 2;
+      const p = center.clone()
+        .addScaledVector(a, Math.cos(ang) * dist)
+        .addScaledVector(b, Math.sin(ang) * dist)
+        .normalize().multiplyScalar(WORLD.ORBIT_RADIUS);
+      this.field.debugKindAt('red', p);
+    }
+  }
   /** телепорт на сферические углы (theta, phi) — для проверки полюсов/тыла */
   debugTeleport(theta: number, phi: number): void {
     const sinPhi = Math.sin(phi);
@@ -775,8 +852,11 @@ export class Game {
       nearMissCount: this.nearMissCount,
       escapeCount: this.escapeCount,
       entities: this.field.souls.length,
+      reds: this.field.count('red'),
       particles: this.fx.activeCount,
       controlLock: this.controlLock,
+      cursed: this.pc.cursed,
+      curseTimer: this.pc.curseTimer,
       zoom: this.zoom,
       zoomTarget: this.zoomTarget,
       /** угловая скорость игрока, рад/с (анти-водоворотная диагностика) */

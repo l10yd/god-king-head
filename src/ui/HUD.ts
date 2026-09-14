@@ -14,6 +14,8 @@ export interface HudState {
   hp01: number;
   boost01: number;
   dashReady: boolean;
+  /** проклятие красного духа актив (тяга заблокирована) */
+  cursed: boolean;
   gaze: { active: boolean; progress: number; lock: boolean; firing: boolean };
   danger01: number;
   timeSec: number;
@@ -28,6 +30,7 @@ export class HUD {
   private hpFill!: HTMLElement;
   private hpBar!: HTMLElement;
   private boostFill!: HTMLElement;
+  private boostBar!: HTMLElement;
   private gazeEl!: HTMLElement;
   private gazeMeter!: HTMLElement;
   private gazeSub!: HTMLElement;
@@ -78,6 +81,7 @@ export class HUD {
     this.hpFill = q('.gk-bar.hp i');
     this.hpBar = q('.gk-bar.hp');
     this.boostFill = q('.gk-bar.boost i');
+    this.boostBar = q('.gk-bar.boost');
     this.gazeEl = q('.gk-gaze');
     this.gazeMeter = q('.gk-gaze .meter i');
     this.gazeSub = q('.gk-gaze .sub');
@@ -116,6 +120,9 @@ export class HUD {
     this.hpBar.classList.toggle('low', s.hp01 < 0.34);
     this.hpNum.textContent = String(Math.round(s.hp01 * 100));
     this.boostFill.style.transform = `scaleX(${s.boost01})`;
+    // ПРОКЛЯТИЕ: шкала тяги «гаснет» красным, SHIFT/рывок недоступны
+    this.boostBar.classList.toggle('cursed', s.cursed);
+    this.boostFill.style.filter = s.cursed ? 'grayscale(1) brightness(.6)' : '';
     this.gazeEl.classList.toggle('on', s.gaze.active);
     this.gazeMeter.style.width = `${Math.round(s.gaze.progress * 100)}%`;
     this.gazeSub.textContent = s.gaze.firing ? 'СОЖЖЕНИЕ' : s.gaze.lock ? 'ЗАХВАТ' : 'ОН СМОТРИТ';

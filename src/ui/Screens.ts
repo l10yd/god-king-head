@@ -40,7 +40,7 @@ export class Screens {
           <div class="k">R</div><div>рестарт</div>
         </div>
         <button class="gk-big-btn start">НАЧАТЬ ПОЛЁТ</button>
-        <div class="gk-tiny">СИНИЕ ДУШИ — ОЧКИ · ЗЕЛЁНЫЕ — ЖИЗНЬ · КРАСНЫЕ — ЛУЧШЕ НЕ ТРОГАЙ</div>
+        <div class="gk-tiny">СИНИЕ — ОЧКИ · ЗОЛОТО — ОЧКИ + ВОЛНА, ЖГУЩАЯ ДУХОВ · ЗЕЛЁНЫЕ — ЖИЗНЬ · КРАСНЫЕ — КРАДУТ ТЯГУ И РАЗГОНЯЮТ ЕГО ВЗГЛЯД</div>
       </div>
       <div class="gk-screen over hidden">
         <div class="gk-dead-title">БОГ УВИДЕЛ ТЕБЯ</div>

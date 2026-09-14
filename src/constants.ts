@@ -43,6 +43,12 @@ export const PLAYER = {
   SPIRIT_HIT_RADIUS: 11.5,
   /** Неуязвимость после касания духа, сек */
   SPIRIT_INVULN: 1.6,
+  /** Лечение зелёной душой (скромное: дух жизни, а не аптека) */
+  HEAL_GREEN: 7,
+  /** Проклятие красного духа: длительность и множитель скорости.
+   *  Контакт НЕ снимает HP — он крадёт тягу: SlOW + без SHIFT/дэша. */
+  CURSE_DURATION: 2.4,
+  CURSE_SLOW: 0.5,
 } as const;
 
 /** Голова и взгляд */
@@ -89,6 +95,8 @@ export const SCORE = {
   NEAR_MISS: 50,
   GAZE_ESCAPE: 100,
   SPIRIT_TOUCH: -25,
+  /** очки за каждого испепелённого золотой волной духа */
+  SPIRIT_PURGED: 75,
   COMBO_MAX: 5,
   COMBO_WINDOW: 6.0,
 } as const;
@@ -101,28 +109,31 @@ export const DIFFICULTY = {
   TIME_DANGER_PERIOD: 95,
   /** Максимум времени в danger-формуле, сек */
   TIME_DANGER_CAP: 420,
-  /** Целевая популяция: [blue, green, red] на фазу по времени (сек) */
+  /** Целевая популяция: [blue, green, red] на фазу по времени (сек).
+   *  v4: синие/зелёные ×2 против прежнего, КРАСНЫЕ растут нелинейно —
+   *  к финалу они основная угроза (золотые — не по фазам, редкие). */
   PHASES: [
-    { t: 0,   blue: 14, green: 5, red: 3 },
-    { t: 60,  blue: 18, green: 5, red: 6 },
-    { t: 120, blue: 22, green: 6, red: 10 },
-    { t: 180, blue: 26, green: 6, red: 15 },
-    { t: 260, blue: 30, green: 7, red: 22 },
-    { t: 360, blue: 34, green: 8, red: 30 },
+    { t: 0,   blue: 28, green: 8,  red: 4 },
+    { t: 60,  blue: 34, green: 9,  red: 10 },
+    { t: 120, blue: 40, green: 10, red: 18 },
+    { t: 180, blue: 44, green: 10, red: 28 },
+    { t: 260, blue: 52, green: 12, red: 40 },
+    { t: 360, blue: 60, green: 14, red: 56 },
   ],
-  MAX_RED: 34,
-  MAX_BLUE: 40,
-  MAX_GREEN: 10,
-  /** Скорость красных духов: базовая + рост по danger, рад/с */
-  RED_SPEED_BASE: 0.028,
-  RED_SPEED_PER_DANGER: 0.006,
-  RED_SPEED_MAX: 0.12,
-  /** Вероятность «преследования» игрока красным духом по danger */
-  RED_CHASE_PER_DANGER: 0.06,
+  MAX_RED: 56,
+  MAX_BLUE: 60,
+  MAX_GREEN: 14,
+  /** Скорость красных духов: базовая + рост по danger, рад/с.
+   *  Потолок намеренно НИЖЕ хода игрока (0.14) — догнать насмерть нельзя,
+   *  но прижать и замедлить — могут; рывок (0.336) гарантированно срывает. */
+  RED_SPEED_BASE: 0.045,
+  RED_SPEED_PER_DANGER: 0.012,
+  RED_SPEED_MAX: 0.13,
+  /** Интенсивность преследования по danger (0..1): шанс захвата игрока в секунду */
+  RED_CHASE_PER_DANGER: 0.35,
+  /** Угловая дальность «захвата» духом игрока (рад ~60°) — «в поле зрения» */
+  RED_CHASE_CONE: 1.05,
 } as const;
-
-/** HP красных духов-прикосновений (штраф по здоровью) */
-export const SPIRIT_DAMAGE = 6;
 
 /** Камера */
 export const CAM = {
@@ -140,14 +151,15 @@ export const CAM = {
   GAZE_TARGET_PULL: 3.2,
   /** Затягивание камеры к голове во время пробуждения (метры) */
   AWAKEN_PULL_M: 16,
-  /** Зум колесом: множитель BACK_DISTANCE [мин, макс]; старт рана — близко */
+  /** Зум колесом: множитель BACK_DISTANCE [мин, макс].
+   *  Старт рана: zoom = MIN (камера у самого игрока) → за INTRO_TIME разлетается
+   *  до MAX; колесо разблокируется после раслёта. */
   ZOOM_MIN: 0.35,
   ZOOM_MAX: 2.6,
-  ZOOM_START: 0.5,
-  /** Скорость «раслёта» камеры на старте (damp-лямбда, 1/с) */
-  ZOOM_IN_RATE: 1.1,
-  /** Шаг зума на один тик колеса */
-  ZOOM_STEP: 0.16,
+  /** длительность стартового раслёта, сек (= controlLock) */
+  ZOOM_INTRO_TIME: 2.0,
+  /** Шаг зума на один тик колеса (доля диапазона) */
+  ZOOM_STEP: 0.11,
 } as const;
 
 /** Звук/музыка */
@@ -194,6 +206,14 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
 export const POOL = {
   MAX_PARTICLES: 2600,
   MAX_FLOATERS: 14,
-  /** Сколько максимум активных сущностей душ/духов на сцене */
-  MAX_ENTITIES: 120,
+  /** Сколько максимум активных сущностей душ/духов на сцене (v4: ×2 плотность) */
+  MAX_ENTITIES: 170,
+} as const;
+
+/** Золотой бонус: круговая волна, испепеляющая красных духов вокруг */
+export const GOLD_WAVE = {
+  /** радиус поражения волны, м */
+  RADIUS: 60,
+  /** длительность визуального кольца, сек */
+  DURATION: 0.9,
 } as const;

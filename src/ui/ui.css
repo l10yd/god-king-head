@@ -43,6 +43,8 @@
 .gk-bar.low i { background: linear-gradient(90deg, #7a1d1d, var(--red)); box-shadow: 0 0 14px rgba(255, 60, 40, .6); }
 .gk-bar.boost { height: 4px; margin-top: 6px; border-color: rgba(111, 232, 255, .07); }
 .gk-bar.boost i { background: linear-gradient(90deg, #24405c, #7ea6ff); box-shadow: none; opacity: .8; }
+/* проклятие красного духа: тяга заблокирована */
+.gk-bar.boost.cursed { border-color: rgba(255, 60, 50, .55); box-shadow: 0 0 10px rgba(255, 45, 40, .35); }
 
 /* ---------- DIVINE GAZE ---------- */
 .gk-gaze {

@@ -5,3 +5,6 @@ shots
 .vercel
 .env*
 *.log
+
+.vercel
+.env*

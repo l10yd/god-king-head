@@ -33,6 +33,8 @@ export interface SoulData {
   seed: number;
   mesh: Group | null;
   bob: number;
+  /** секунды в режиме погони (для «поводка») */
+  chaseT: number;
   /** инверсия материализации (0→1 за ~0.6c, защита от спавна «в игрока») */
   spawnFade: number;
 }
@@ -91,6 +93,7 @@ export function makeSoul(kind: SoulKind, rng: Rng, playerDir: Vector3, minAngle 
     seed: rng() * 100,
     mesh: null,
     bob: rng() * Math.PI * 2,
+    chaseT: 0,
     spawnFade: 0,
   };
 }

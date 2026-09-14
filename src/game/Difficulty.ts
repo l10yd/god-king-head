@@ -5,12 +5,13 @@
 import { DIFFICULTY, HEAD } from '../constants';
 import { clamp01, lerp, smoothstep } from '../math/Tracking';
 
-/** Опасность: смешивает время рана и собранных красных духов */
+/** Опасность: смешивает время рана и число СОБРАННЫХ красных духов.
+ *  Каждый подобранный дух ощутимо разгоняет голову Бога (быстрее погоня/луч). */
 export function dangerScore(timeSec: number, redSpiritsTouched: number): number {
   const timePart = 1 - Math.exp(-timeSec / DIFFICULTY.TIME_DANGER_PERIOD);
-  const redPart = 1 - Math.exp(-redSpiritsTouched / 14);
-  // красные духи влияют сильнее всего в ранней/средней игре
-  return clamp01(0.45 * timePart + 0.75 * redPart);
+  // короткая «насыщающая» кривая: уже ~10 духов сильно поднимают danger
+  const redPart = 1 - Math.exp(-redSpiritsTouched / 10);
+  return clamp01(0.4 * timePart + 0.85 * redPart);
 }
 
 /** Скорость поворота головы к игроку, рад/с */
@@ -60,9 +61,13 @@ export function redSpeed(danger: number): number {
   return Math.min(DIFFICULTY.RED_SPEED_MAX, DIFFICULTY.RED_SPEED_BASE + danger * DIFFICULTY.RED_SPEED_PER_DANGER * 20);
 }
 
-/** Вероятность преследования игрока (на духа в пересчёт, 0..1) */
+/**
+ * Интенсивность преследования: вероятность в секунду, с которой дух «замечает»
+ * игрока и уходит в погоню. РАВНА НУЛЮ при danger=0 (духи не охотятся в самой
+ * ранней игре) и растёт с опасностью — «постепенно красные начинают преследовать».
+ */
 export function redChaseChance(danger: number): number {
-  return clamp01(danger * 1.6);
+  return Math.min(1, danger * DIFFICULTY.RED_CHASE_PER_DANGER);
 }
 
 /** Порог gaze чуть сужается со сложностью — late game безжалостнее */

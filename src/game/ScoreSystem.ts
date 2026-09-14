@@ -79,6 +79,13 @@ export class ScoreSystem {
     return SCORE.SPIRIT_TOUCH;
   }
 
+  /** Бонус за духов, испепелённых золотой волной (не трогает комбо) */
+  purgedSpirits(count: number): number {
+    const gained = SCORE.SPIRIT_PURGED * count;
+    this.add(gained);
+    return gained;
+  }
+
   damageTaken(): void {
     if (this.mult > 1 || this.comboCount > 0) {
       this.mult = 1;

@@ -6,7 +6,7 @@
  * преследование (вероятность растёт с danger).
  */
 import { Group, Vector3 } from 'three';
-import { WORLD, PLAYER, DIFFICULTY } from '../constants';
+import { WORLD, PLAYER, DIFFICULTY, POOL } from '../constants';
 import { makeSoul, createSoulMesh, stepSoulMotion, type SoulData, type SoulKind } from './Soul';
 import { targetPopulation, redSpeed, redChaseChance } from '../game/Difficulty';
 import type { Rng } from '../math/rng';
@@ -46,10 +46,10 @@ export class SoulField {
     this.tickTimer = 0;
   }
 
-  /** Начальная раскладка рана: мало душ, «тихая гавань» */
+  /** Начальная раскладка рана: «тихая гавань», но уже плотная (v4 ×2) */
   seedInitialRun(playerDir: Vector3): void {
-    for (let i = 0; i < 15; i++) this.spawn('blue', playerDir);
-    for (let i = 0; i < 5; i++) this.spawn('green', playerDir);
+    for (let i = 0; i < 30; i++) this.spawn('blue', playerDir);
+    for (let i = 0; i < 9; i++) this.spawn('green', playerDir);
     for (let i = 0; i < DIFFICULTY.PHASES[0].red; i++) this.spawn('red', playerDir);
   }
 
@@ -124,13 +124,14 @@ export class SoulField {
     // --- движение + коллизии ---
     const shellR = WORLD.ORBIT_RADIUS;
     const rspeed = redSpeed(danger) * shellR;
-    const chase = redChaseChance(danger);
+    const chaseChance = redChaseChance(danger); // сек⁻¹ «заметить игрока»
+    const cone = DIFFICULTY.RED_CHASE_CONE;
     for (let i = this.souls.length - 1; i >= 0; i--) {
       const s = this.souls[i];
       if (!s.alive) { this.removeAt(i); continue; }
 
       if (s.kind === 'red') {
-        // дрейф + иногда преследование
+        // базовый блуждающий дрейф
         if (s.vel.lengthSq() < 0.01 || this.rng() < 0.016) {
           const dir = orbitRandom(this.rng);
           const sinP = Math.sin(dir.phi);
@@ -138,18 +139,26 @@ export class SoulField {
           const t = _tmp2.sub(s.n).normalize();
           s.vel.copy(t).multiplyScalar(rspeed * (0.6 + 0.5 * this.rng()));
         }
-        // преследование: с вероятностью chase на «перезагрузке» — лок в сторону игрока
-        if (chase > 0.02 && (awakened || danger > 0.08)) {
-          if (!s.chase && this.rng() < dt * chase * 0.55) s.chase = true;
-          if (s.chase) {
-            if (this.rng() < dt * 0.12) s.chase = false;
+        // угловое расстояние до игрока на сфере — «видит ли дух его»
+        const angToPlayer = s.n.angleTo(playerDir);
+        if (!s.chase) {
+          // захват: игрок в конусе обзора, голова уже видела игрока (awakened)
+          // или общая опасность высокая; вероятность растёт с danger
+          if ((awakened || danger > 0.08) && angToPlayer < cone && this.rng() < chaseChance * dt) {
+            s.chase = true; s.chaseT = 0;
+          }
+        } else {
+          s.chaseT += dt;
+          // «поводок»: игрок ушёл рывком за конус — или погоня затянулась — loses interest
+          if (angToPlayer > cone * 1.7 || s.chaseT > 8) {
+            s.chase = false; s.chaseT = 0;
+          } else {
             const toPlayer = _tmp2.copy(playerPos).sub(s.pos);
-            const dist = toPlayer.length();
             toPlayer.addScaledVector(s.n, -toPlayer.dot(s.n));
             if (toPlayer.lengthSq() > 1e-6) {
               toPlayer.normalize();
-              const speed = rspeed * (dist > 90 ? 1.5 : 0.75);
-              s.vel.lerp(toPlayer.multiplyScalar(speed), Math.min(1, dt * 1.8));
+              // погоня быстрее дрейфа; скорость растёт с danger (rspeed уже растёт)
+              s.vel.lerp(toPlayer.multiplyScalar(rspeed * 1.7), Math.min(1, dt * 2.2));
             }
           }
         }
@@ -169,9 +178,14 @@ export class SoulField {
         s.mesh.position.copy(s.pos);
         const bobY = Math.sin(time * 1.4 + s.bob) * 1.2;
         s.mesh.position.addScaledVector(s.n, bobY);
-        const pulse = 1 + Math.sin(time * (s.kind === 'red' ? 3.2 : 2.1) + s.seed) * (s.kind === 'red' ? 0.07 : 0.12);
+        // преследующий дух пульсирует злее и чуть крупнее
+        const redRate = s.chase ? 7.5 : 3.2;
+        const redAmp = s.chase ? 0.13 : 0.07;
+        const pulse = 1 + Math.sin(time * (s.kind === 'red' ? redRate : 2.1) + s.seed)
+          * (s.kind === 'red' ? redAmp : 0.12);
         const fadeScale = s.kind === 'red' ? 1 : s.spawnFade;
-        s.mesh.scale.setScalar(pulse * (0.5 + 0.5 * fadeScale));
+        const chaseBoost = s.chase ? 1.12 : 1;
+        s.mesh.scale.setScalar(pulse * (0.5 + 0.5 * fadeScale) * chaseBoost);
         if (s.kind === 'red') {
           s.mesh.lookAt(0, 0, 0);
           s.mesh.rotateY(Math.PI);
@@ -193,18 +207,37 @@ export class SoulField {
       }
       // мусорный сбор: очень далеко от орбитального пояса — в пул
       const r = s.pos.length();
-      if (r < WORLD.ORBIT_RADIUS * 0.5 || this.souls.length > 140) {
+      if (r < WORLD.ORBIT_RADIUS * 0.5 || this.souls.length > POOL.MAX_ENTITIES) {
         this.removeAt(i);
       }
     }
     return { collected, spiritTouched };
   }
 
-  /** доводит число живых типа до цели (не более 2 за тик — волнами) */
+  /**
+   * Золотая волна: испепелить ближайших красных духов вокруг точки.
+   * Пушит позиции убитых в `out` (опционально) и возвращает число.
+   */
+  purgeRedsNear(center: Vector3, radius: number, out?: Vector3[]): number {
+    let killed = 0;
+    const r2 = radius * radius;
+    for (let i = this.souls.length - 1; i >= 0; i--) {
+      const s = this.souls[i];
+      if (s.kind === 'red' && s.alive && s.pos.distanceToSquared(center) < r2) {
+        if (out) out.push(s.pos.clone());
+        this.retire(s);
+        this.souls.splice(i, 1);
+        killed++;
+      }
+    }
+    return killed;
+  }
+
+  /** доводит число живых типа до цели (не более budget за тик — волнами) */
   private refill(kind: SoulKind, target: number, playerDir: Vector3, danger = 0): void {
     let c = this.count(kind);
-    let budget = 2;
-    while (c < target && budget-- > 0 && this.souls.length < 120) {
+    let budget = kind === 'red' ? 3 : 4; // плотность ×2 — заполнять бодрее
+    while (c < target && budget-- > 0 && this.souls.length < POOL.MAX_ENTITIES) {
       // красные духи ближе к позднему геймплею спавнятся «в стороне игрока»,
       // но изредка — рядом (искушение/угроза)
       const near = kind === 'red' && danger > 0.3 && this.rng() < 0.25;
@@ -213,16 +246,20 @@ export class SoulField {
     }
   }
 
-  /** QA-хук: дух прямо у игрока (для автотестов scripted-события) */
-  debugSpiritAt(pos: Vector3): void {
-    const sd = makeSoul('red', this.rng, new Vector3(0, 0, 1), 0);
+  /** QA-хук: сущность данного типа прямо у игрока (для автотестов) */
+  debugKindAt(kind: SoulKind, pos: Vector3): void {
+    const sd = makeSoul(kind, this.rng, new Vector3(0, 0, 1), 0);
     sd.pos.copy(pos).add(_tmp.set(0, 2, 2));
     sd.n.copy(sd.pos).normalize();
     sd.spawnFade = 1;
-    const mesh = this.obtainMesh('red', false);
+    const mesh = this.obtainMesh(kind, sd.large);
     mesh.position.copy(sd.pos);
     sd.mesh = mesh;
     this.root.add(mesh);
     this.souls.push(sd);
+  }
+  /** QA-хук: дух прямо у игрока (для автотестов scripted-события) */
+  debugSpiritAt(pos: Vector3): void {
+    this.debugKindAt('red', pos);
   }
 }

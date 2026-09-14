@@ -46,6 +46,17 @@ export class PlayerController {
   bank = 0;
   /** нормализованная текущая скорость (для FOV/визуала) */
   speed01 = 0;
+  /** ПРОКЛЯТИЕ красного духа: >0 — замедление, SHIFT и рывок недоступны */
+  curseTimer = 0;
+
+  /** наложить проклятие при косании красного духа */
+  curse(duration: number): void {
+    this.curseTimer = Math.max(this.curseTimer, duration);
+  }
+
+  get cursed(): boolean {
+    return this.curseTimer > 0;
+  }
 
   /** экранное «право»: u = up × d (согласовано с камерой up=upRef, look −d) */
   screenRight(out: Vector3): Vector3 {
@@ -67,6 +78,7 @@ export class PlayerController {
     this.dashCooldown = 0;
     this.bank = 0;
     this.speed01 = 0;
+    this.curseTimer = 0;
     this._initUpRef();
   }
 
@@ -98,8 +110,12 @@ export class PlayerController {
     const u = _tmpB.crossVectors(this.upRef, this.d).normalize(); // экран-право
     const v = this.upRef; // экран-верх
 
+    // --- проклятие красного духа: тяга урезана, SHIFT/рывок недоступны ---
+    if (this.curseTimer > 0) this.curseTimer = Math.max(0, this.curseTimer - sdt);
+    const cursed = this.curseTimer > 0;
+
     // --- boost ---
-    const wantBoost = input.boost && this.boostMeter > PLAYER.BOOST_MIN_USE
+    const wantBoost = input.boost && !cursed && this.boostMeter > PLAYER.BOOST_MIN_USE
       && (Math.abs(input.x) + Math.abs(input.y) > 0.05);
     this.boosting = wantBoost;
     if (wantBoost) this.boostMeter = Math.max(0, this.boostMeter - PLAYER.BOOST_DRAIN * sdt);
@@ -107,15 +123,15 @@ export class PlayerController {
 
     // --- dash ---
     this.dashCooldown = Math.max(0, this.dashCooldown - sdt);
-    if (input.dash && this.dashCooldown <= 0 && (Math.abs(input.x) + Math.abs(input.y) > 0.05)) {
+    if (input.dash && !cursed && this.dashCooldown <= 0 && (Math.abs(input.x) + Math.abs(input.y) > 0.05)) {
       this.dashTimer = PLAYER.DASH_DURATION;
       this.dashCooldown = PLAYER.DASH_COOLDOWN;
     }
-    const dashActive = this.dashTimer > 0;
+    const dashActive = this.dashTimer > 0 && !cursed;
     if (dashActive) this.dashTimer -= sdt;
 
     // --- desired velocity в касательной плоскости ---
-    const base = PLAYER.BASE_YAW_SPEED * orbitRadius;
+    const base = PLAYER.BASE_YAW_SPEED * orbitRadius * (cursed ? PLAYER.CURSE_SLOW : 1);
     const speed = base * (this.boosting ? PLAYER.BOOST_MULT : 1) * (dashActive ? 2.4 : 1);
     const mag = Math.hypot(input.x, input.y);
     if (mag > 1e-4) {

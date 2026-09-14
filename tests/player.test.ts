@@ -70,6 +70,34 @@ describe('PlayerController — нет самовращения (регресси
   });
 });
 
+describe('PlayerController — проклятие красного духа', () => {
+  it('curse: замедляет, блокирует SHIFT и дэш; истекает само', () => {
+    const pc = new PlayerController();
+    pc.resetRun(new Vector3(0.75, 0.35, 0.55).normalize());
+    pc.curse(2.4);
+    expect(pc.cursed).toBe(true);
+
+    const baseSpeed = PLAYER.BASE_YAW_SPEED * WORLD.ORBIT_RADIUS;
+    // 1 сек «зажатых SHIFT+дэш» ПОД проклятием (curse=2.4s, проверяем до истечения)
+    for (let i = 0; i < 60; i++) {
+      pc.update(1 / 60, { x: 1, y: 0, boost: true, dash: true }, WORLD.ORBIT_RADIUS, 1);
+    }
+    expect(pc.cursed).toBe(true);
+    // скорость = ЗАМЕДЛЕННАЯ базовая, а не буст×дэш
+    expect(pc.vel.length()).toBeLessThan(baseSpeed * PLAYER.CURSE_SLOW * 1.3);
+    // дэш так и не активировался; шкала тяги не сливалась
+    expect(pc.dashTimer).toBe(0);
+    expect(pc.boostMeter).toBeGreaterThan(90);
+
+    // ещё 2 сек без прикосновений — проклятие истекло, тяга вернулась
+    for (let i = 0; i < 120; i++) {
+      pc.update(1 / 60, { x: 1, y: 0, boost: false, dash: false }, WORLD.ORBIT_RADIUS, 1);
+    }
+    expect(pc.cursed).toBe(false);
+    expect(pc.vel.length()).toBeGreaterThan(baseSpeed * 0.8);
+  });
+});
+
 describe('PlayerController — полюса', () => {
   it('проход через северный полюс без сингулярности', () => {
     const pc = new PlayerController();
