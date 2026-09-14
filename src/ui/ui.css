@@ -1,0 +1,167 @@
+/* ГОЛОВА БОГА-КОРОЛЯ — стиль интерфейса. Минимализм, letter-spacing,
+   холодный циан + кровавый красный только как язык опасности. */
+
+:root {
+  --cyan: #6fe8ff;
+  --cyan-dim: #2c6a80;
+  --red: #ff3b30;
+  --gold: #ffcf4d;
+  --green: #3aff88;
+  --ink: #05070d;
+  --text: #b9c4d8;
+}
+
+* { box-sizing: border-box; }
+
+.gk-hud { position: fixed; inset: 0; pointer-events: none; font-family: 'Segoe UI', system-ui, sans-serif; }
+.gk-hud .num { font-variant-numeric: tabular-nums; }
+
+/* ---------- SCORE ---------- */
+.gk-score { position: absolute; top: 26px; left: 34px; text-align: left; }
+.gk-score .label { font-size: 10px; letter-spacing: .42em; color: #55617a; }
+.gk-score .value {
+  font-size: 34px; font-weight: 200; letter-spacing: .06em; color: #dfe9ff;
+  text-shadow: 0 0 22px rgba(111, 232, 255, .35); line-height: 1.1;
+}
+.gk-score .best { font-size: 11px; letter-spacing: .28em; color: #465067; margin-top: 2px; }
+.gk-combo {
+  margin-top: 6px; display: inline-block; padding: 1px 8px; font-size: 12px; letter-spacing: .12em;
+  color: var(--gold); border: 1px solid rgba(255, 207, 77, .35); border-radius: 3px;
+  text-shadow: 0 0 12px rgba(255, 207, 77, .5); opacity: 0; transition: opacity .25s;
+}
+.gk-combo.on { opacity: 1; }
+.gk-combo.pulse { animation: gk-pulse .35s ease; }
+@keyframes gk-pulse { 0% { transform: scale(1.35); } 100% { transform: scale(1); } }
+
+/* ---------- HP / BOOST ---------- */
+.gk-vitals { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); width: min(46vw, 480px); }
+.gk-vitals .row { display: flex; justify-content: space-between; font-size: 9px; letter-spacing: .3em; color: #55617a; margin-bottom: 5px; }
+.gk-bar { position: relative; height: 8px; background: rgba(20, 26, 40, .75); border: 1px solid rgba(111, 232, 255, .14); border-radius: 2px; overflow: hidden; }
+.gk-bar i { position: absolute; inset: 0; width: 100%; transform-origin: left; display: block;
+  background: linear-gradient(90deg, #1d6f86, var(--cyan)); box-shadow: 0 0 14px rgba(111, 232, 255, .55);
+  transition: transform .18s ease; }
+.gk-bar.low i { background: linear-gradient(90deg, #7a1d1d, var(--red)); box-shadow: 0 0 14px rgba(255, 60, 40, .6); }
+.gk-bar.boost { height: 4px; margin-top: 6px; border-color: rgba(111, 232, 255, .07); }
+.gk-bar.boost i { background: linear-gradient(90deg, #24405c, #7ea6ff); box-shadow: none; opacity: .8; }
+
+/* ---------- DIVINE GAZE ---------- */
+.gk-gaze {
+  position: absolute; top: 46px; left: 50%; transform: translateX(-50%); text-align: center;
+  opacity: 0; transition: opacity .3s;
+}
+.gk-gaze.on { opacity: 1; }
+.gk-gaze .title {
+  font-size: 13px; letter-spacing: .55em; color: var(--red);
+  text-shadow: 0 0 18px rgba(255, 59, 48, .8); animation: gazeFlicker 1.6s infinite;
+}
+@keyframes gazeFlicker { 0%, 100% { opacity: 1; } 92% { opacity: .55; } 94% { opacity: 1; } }
+.gk-gaze .meter { width: 220px; height: 3px; margin: 8px auto 0; background: rgba(255, 60, 48, .12); border-radius: 2px; overflow: hidden; }
+.gk-gaze .meter i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, #7a1010, #ff3b30, #ffd0c0); box-shadow: 0 0 10px #ff3b30; }
+.gk-gaze .sub { margin-top: 6px; font-size: 9px; letter-spacing: .4em; color: #7d4650; }
+
+/* ---------- нижняя строка статуса ---------- */
+.gk-status {
+  position: absolute; bottom: 14px; left: 34px; font-size: 10px; letter-spacing: .22em; color: #3c455c;
+}
+.gk-hint {
+  position: absolute; bottom: 16px; right: 30px; font-size: 11px; letter-spacing: .18em; color: #4a5570;
+  transition: opacity 1.5s; text-align: right; line-height: 1.9;
+}
+.gk-hint.fade { opacity: 0; }
+.gk-hint b { color: #7c8aa8; font-weight: 500; }
+
+/* ---------- кнопки ---------- */
+.gk-btns { position: absolute; top: 24px; right: 30px; display: flex; gap: 14px; pointer-events: auto; }
+.gk-btns button {
+  pointer-events: auto; background: none; border: 1px solid rgba(111, 232, 255, .18); color: #7c8aa8;
+  width: 34px; height: 34px; border-radius: 4px; font-size: 14px; cursor: pointer; transition: all .2s;
+}
+.gk-btns button:hover { border-color: var(--cyan); color: var(--cyan); box-shadow: 0 0 16px rgba(111, 232, 255, .25); }
+
+/* ---------- floating texts ---------- */
+.gk-floaters { position: absolute; inset: 0; overflow: hidden; }
+.gk-floater {
+  position: absolute; transform: translate(-50%, -50%); font-size: 15px; font-weight: 500;
+  letter-spacing: .1em; opacity: 0; white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.gk-floater.score { color: var(--cyan); text-shadow: 0 0 12px rgba(111, 232, 255, .8); }
+.gk-floater.gold { color: var(--gold); text-shadow: 0 0 14px rgba(255, 207, 77, .9); font-size: 19px; }
+.gk-floater.heal { color: var(--green); text-shadow: 0 0 12px rgba(58, 255, 136, .8); }
+.gk-floater.danger { color: var(--red); text-shadow: 0 0 14px rgba(255, 59, 48, .9); font-size: 17px; }
+.gk-floater.info { color: #9fb2d8; }
+
+/* ---------- ЭКРАНЫ ---------- */
+.gk-screen {
+  position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+  flex-direction: column; background: radial-gradient(ellipse at center, rgba(3, 5, 10, .32) 0%, rgba(2, 3, 7, .88) 100%);
+  pointer-events: auto; transition: opacity .8s ease; z-index: 20;
+}
+.gk-screen.hidden { opacity: 0; visibility: hidden; pointer-events: none; transition: opacity .8s ease, visibility 0s linear .8s; }
+.gk-screen.hidden-fast { opacity: 0; visibility: hidden; pointer-events: none; transition: opacity .5s, visibility 0s linear .5s; }
+
+.gk-title {
+  font-size: clamp(34px, 6.4vw, 84px); font-weight: 100; letter-spacing: .32em; color: #d8e6ff;
+  text-shadow: 0 0 60px rgba(111, 232, 255, .28); text-align: center; margin: 0 0 8px; padding-left: .32em;
+}
+.gk-sub {
+  font-size: clamp(11px, 1.4vw, 15px); letter-spacing: .5em; color: #5a6a8c; text-align: center; margin-bottom: 48px; padding-left: .5em;
+}
+.gk-controls { display: grid; grid-template-columns: auto auto; gap: 6px 26px; font-size: 12px; color: #57647f; letter-spacing: .14em; margin-bottom: 44px; }
+.gk-controls .k { text-align: right; color: #93a6c9; font-family: monospace; }
+.gk-big-btn {
+  pointer-events: auto; cursor: pointer; background: rgba(8, 14, 24, .5); color: #cfe4ff;
+  border: 1px solid rgba(111, 232, 255, .45); padding: 14px 58px; font-size: 16px; letter-spacing: .45em;
+  border-radius: 3px; transition: all .25s; text-indent: .45em;
+}
+.gk-big-btn:hover { background: rgba(111, 232, 255, .1); box-shadow: 0 0 34px rgba(111, 232, 255, .35); color: #fff; }
+.gk-tiny { font-size: 10px; letter-spacing: .3em; color: #404b63; margin-top: 26px; }
+
+/* game over */
+.gk-dead-title { font-size: clamp(26px, 4.6vw, 58px); font-weight: 100; letter-spacing: .3em; color: #ffd9d0; text-shadow: 0 0 46px rgba(255, 59, 48, .5); margin: 0 0 6px; }
+.gk-dead-sub { font-size: 12px; letter-spacing: .5em; color: #8a5550; margin-bottom: 40px; }
+.gk-stats { display: grid; grid-template-columns: repeat(5, minmax(110px, auto)); gap: 0 46px; margin-bottom: 46px; }
+.gk-stat { text-align: center; }
+.gk-stat .label { font-size: 9px; letter-spacing: .34em; color: #525d75; margin-bottom: 7px; }
+.gk-stat .value { font-size: 22px; font-weight: 200; color: #dfe9ff; letter-spacing: .05em; font-variant-numeric: tabular-nums; }
+.gk-stat.hl .value { color: var(--cyan); text-shadow: 0 0 18px rgba(111, 232, 255, .5); }
+.gk-stat.dg .value { color: var(--red); }
+
+/* settings */
+.gk-modal {
+  background: rgba(6, 9, 17, .92); border: 1px solid rgba(111, 232, 255, .16); border-radius: 6px;
+  padding: 26px 34px; min-width: 320px;
+}
+.gk-modal h3 { margin: 0 0 18px; font-weight: 300; letter-spacing: .4em; font-size: 13px; color: #93a6c9; }
+.gk-opt { display: flex; justify-content: space-between; align-items: center; margin-bottom: 13px; font-size: 12px; letter-spacing: .12em; color: #6a789a; }
+.gk-opt select, .gk-opt .toggle {
+  background: #0b1120; color: var(--cyan); border: 1px solid rgba(111, 232, 255, .25);
+  padding: 4px 10px; font-size: 12px; border-radius: 3px; cursor: pointer; letter-spacing: .1em;
+}
+
+/* debug */
+.gk-debug {
+  position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 30;
+  font: 11px/1.55 monospace; color: #7fe6a8; background: rgba(0, 8, 4, .72);
+  border: 1px solid rgba(80, 255, 140, .2); padding: 8px 12px; border-radius: 4px;
+  white-space: pre; pointer-events: none; display: none;
+}
+.gk-debug.on { display: block; }
+
+/* awakening banner */
+.gk-banner {
+  position: absolute; top: 34%; left: 50%; transform: translate(-50%, -50%);
+  font-size: clamp(20px, 3.4vw, 40px); font-weight: 100; letter-spacing: .5em; text-indent: .5em;
+  color: #e9f4ff; text-shadow: 0 0 40px rgba(111, 232, 255, .8), 0 0 90px rgba(120, 160, 255, .4);
+  opacity: 0; pointer-events: none; text-align: center;
+}
+.gk-banner.show { animation: bannerIn 5.6s ease forwards; }
+@keyframes bannerIn {
+  0% { opacity: 0; letter-spacing: .9em; }
+  12% { opacity: 1; letter-spacing: .5em; }
+  75% { opacity: 1; }
+  100% { opacity: 0; letter-spacing: .42em; }
+}
+
+/* first awakening red flash on edges */
+.gk-red-edge { position: absolute; inset: 0; pointer-events: none; opacity: 0;
+  box-shadow: inset 0 0 180px 40px rgba(255, 30, 20, .5); transition: opacity .4s; }
