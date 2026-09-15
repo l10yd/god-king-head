@@ -108,6 +108,12 @@ export class HUD {
     this.hintEl.classList.toggle('fade', !v);
   }
 
+  /** телефон/планшет: подсказка про стик вместо клавиатурной строки */
+  setTouchHints(): void {
+    this.hintEl.innerHTML =
+      '<b>СТИК</b> — полёт &nbsp;·&nbsp; <b>ДО УПОРА</b> — ускорение &nbsp;·&nbsp; <b>РЫВОК</b> — красная кнопка';
+  }
+
   update(s: HudState, dt: number): void {
     if (s.score !== this.lastScore) {
       this.lastScore = s.score;

@@ -167,3 +167,56 @@
 /* first awakening red flash on edges */
 .gk-red-edge { position: absolute; inset: 0; pointer-events: none; opacity: 0;
   box-shadow: inset 0 0 180px 40px rgba(255, 30, 20, .5); transition: opacity .4s; }
+
+/* ---------- сенсорное управление (телефоны/планшеты) ----------
+   Слой-обёртка некликабелен; интерактивны ТОЛЬКО зона стика и кнопки
+   (правило проекта: не вешать pointer-events:auto на всех детей). */
+.gk-touch { position: fixed; inset: 0; z-index: 8; pointer-events: none; }
+.gk-touch.hidden { display: none; }
+.gk-stick-zone {
+  position: absolute; left: 0; bottom: 0; width: 46%; height: 62%;
+  pointer-events: auto; touch-action: none; -webkit-user-select: none; user-select: none;
+}
+.gk-stick-base {
+  position: absolute; left: 0; top: 0; width: 148px; height: 148px; margin: -74px 0 0 -74px;
+  border-radius: 50%; border: 2px solid rgba(111, 232, 255, .28);
+  background: radial-gradient(circle, rgba(20, 40, 60, .18) 55%, rgba(111, 232, 255, .07));
+  opacity: 0; transition: opacity .12s; pointer-events: none;
+}
+.gk-stick-base.on { opacity: 1; }
+.gk-stick-base.boost { border-color: rgba(255, 216, 115, .65); }
+.gk-stick-knob {
+  position: absolute; left: 0; top: 0; width: 62px; height: 62px; margin: -31px 0 0 -31px;
+  border-radius: 50%; opacity: 0; transition: opacity .12s; pointer-events: none;
+  background: radial-gradient(circle at 38% 32%, rgba(160, 225, 255, .55), rgba(28, 58, 86, .5) 70%);
+  box-shadow: 0 0 18px rgba(111, 232, 255, .35);
+}
+.gk-stick-knob.on { opacity: 1; }
+.gk-stick-knob.boost { background: radial-gradient(circle at 38% 32%, rgba(255, 230, 160, .7), rgba(120, 78, 18, .55) 70%); box-shadow: 0 0 22px rgba(255, 200, 90, .5); }
+
+.gk-dash-btn, .gk-pause-btn, .gk-zoom-btn {
+  position: absolute; pointer-events: auto; touch-action: none;
+  -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
+  color: #cfe6ff; font-family: inherit; cursor: pointer;
+}
+.gk-dash-btn {
+  right: calc(20px + env(safe-area-inset-right, 0px)); bottom: calc(28px + env(safe-area-inset-bottom, 0px));
+  width: 104px; height: 104px; border-radius: 50%; font-size: 13px; letter-spacing: .18em; text-indent: .18em;
+  border: 2px solid rgba(255, 130, 70, .45);
+  background: radial-gradient(circle at 36% 30%, rgba(255, 140, 80, .3), rgba(70, 22, 10, .55) 72%);
+  box-shadow: 0 0 26px rgba(255, 90, 40, .25); transition: transform .07s, box-shadow .12s;
+}
+.gk-dash-btn:active { transform: scale(.9); box-shadow: 0 0 40px rgba(255, 150, 60, .55); }
+/* пауза — слева от шестерёнок (.gk-btns: right:30 + две кнопки по 34 + зазоры) */
+.gk-pause-btn {
+  top: calc(24px + env(safe-area-inset-top, 0px)); right: calc(124px + env(safe-area-inset-right, 0px));
+  width: 40px; height: 40px; border-radius: 8px; font-size: 15px; line-height: 1;
+  border: 1px solid rgba(111, 232, 255, .2); background: rgba(10, 18, 28, .5);
+}
+/* зум — вертикально слева от кнопки рывка, чтобы не перекрывать её */
+.gk-zoom-btn {
+  right: calc(136px + env(safe-area-inset-right, 0px)); width: 46px; height: 46px; border-radius: 10px;
+  font-size: 20px; line-height: 1; border: 1px solid rgba(111, 232, 255, .2); background: rgba(10, 18, 28, .5);
+}
+.gk-zoom-btn.zin { bottom: calc(118px + env(safe-area-inset-bottom, 0px)); }
+.gk-zoom-btn.zout { bottom: calc(60px + env(safe-area-inset-bottom, 0px)); }

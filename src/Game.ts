@@ -17,6 +17,7 @@ import { SoulField } from './souls/SoulField';
 import { ParticleSystem } from './render/Particles';
 import { AudioEngine } from './audio/AudioEngine';
 import { HUD } from './ui/HUD';
+import { TouchControls } from './ui/TouchControls';
 import { Screens, type RunSummary } from './ui/Screens';
 import { EventBus } from './core/Events';
 import { StateMachine } from './core/StateMachine';
@@ -84,6 +85,8 @@ export class Game {
   private audio = new AudioEngine();
   private hud: HUD;
   private screens: Screens;
+  /** сенсорный стик/кнопки — только на тач-устройствах */
+  private touchCtl: TouchControls | null = null;
   private bus = new EventBus();
   private fsm = new StateMachine<Phase>('INTRO', PHASE_TRANSITIONS);
   private input = new InputManager();
@@ -190,6 +193,11 @@ export class Game {
 
     this.bindUI();
     this.input.attach(canvas.parentElement!);
+    // сенсорное управление: создаём ТОЛЬКО на тач-устройствах (десктоп не трогаем)
+    if (TouchControls.supported()) {
+      this.touchCtl = new TouchControls(this.input, () => this.togglePause());
+      this.hud.setTouchHints();
+    }
     if (new URLSearchParams(location.search).get('debug') === '1') this.debugMode = true;
 
     // стартовая кинематографичная «спящая» поза: голова лицом вниз-от игрока
@@ -325,6 +333,9 @@ export class Game {
 
   private tick(rdt: number): void {
     const time = this.fxTime(rdt);
+    // тач-слой активен только в игровых фазах (на экранах — свои кнопки)
+    this.touchCtl?.setVisible(
+      this.fsm.current === 'PLAYING' || this.fsm.current === 'DYING');
     // пауза и настройки не «снимают» рендер сцены — просто нет симуляции
     if (this.fsm.current === 'PAUSED') {
       this.hud.updateFloaters(rdt);
@@ -857,6 +868,11 @@ export class Game {
       controlLock: this.controlLock,
       cursed: this.pc.cursed,
       curseTimer: this.pc.curseTimer,
+      boosting: this.pc.boosting,
+      dashTimer: this.pc.dashTimer,
+      dashCooldown: this.pc.dashCooldown,
+      /** есть ли тач-слой и виден ли он сейчас (smoke-проверка) */
+      touch: !!this.touchCtl,
       zoom: this.zoom,
       zoomTarget: this.zoomTarget,
       /** угловая скорость игрока, рад/с (анти-водоворотная диагностика) */

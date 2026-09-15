@@ -2,7 +2,7 @@
 
 ## Стек
 TypeScript 5.9 strict · Vite 7 · three 0.180 (+@types/three) · EffectComposer-пост ·
-WebAudio-процедур · vitest 3.2 (43 теста) · playwright-core + системный Chrome (smoke).
+WebAudio-процедур · vitest (47 тестов, input.test — jsdom) · playwright-core + системный Chrome (smoke).
 npm в песочнице: `--cache ./.npm-cache --ignore-scripts`.
 
 ## Архитектура
@@ -17,7 +17,13 @@ npm в песочнице: `--cache ./.npm-cache --ignore-scripts`.
 Оркестрация — Game.ts (состояния INTRO/PLAYING/PAUSED/DYING/GAMEOVER, timeScale,
 сглаженные FX-униформы в финальный пост-шейдер). Пулинг: меши душ + кольцевой буфер
 частиц 2600. QA-хуки окна: `window.__GK` (debugPeek/teleport/faceGaze/spirit/goldNearPlayer/
-redsRing/kill/heal/playerDir; в peek — cursed, curseTimer, reds).
+redsRing/kill/heal/playerDir; в peek — cursed, curseTimer, reds, boosting, dashTimer, touch).
+ТАЧ (src/ui/TouchControls.ts): слой в body z-8, создаётся ТОЛЬКО если supported()
+(maxTouchPoints/coarse); виден в PLAYING/DYING после первого touchstart (гибрид с
+мышью не трогается). Стикт пишет в input.touch (непрерывно), queueDash()/nudgeZoom()
+— в очереди; Input.read() сливает с клавиатурой (клмп -1..1). Отклонение ≥0.9 = boost.
+setPointerCapture в try/catch (синтетические PointerEvent в smoke). html: user-scalable=no
++ touch-action:none (иначе стик скроллит Chrome). На десктопе DOM-слоя нет — регрессия в smoke.
 КАСАТЕЛЬНЫЙ БАЗИС ВВОДА — внутри PlayerController (upRef, параллельный перенос
 вдоль траектории). КАМЕРА берёт up оттуда же; никогда не наоборот: базис из
 камерного quaternion давал петлю обратной связи («водоворот» при удержании S).
@@ -36,15 +42,17 @@ COOLDOWN выходит по таймеру (НЕ по dot — голова-тр
 - src/head/* — черчение лица, веки-риг, трекинг, луч
 - src/render/Renderer.ts — композер + FINAL_SHADER (teal-orange, vignette, grain, CA,
   redPulse-к-краям, whiteFlash, heat)
-- scripts/smoke.mjs — приёмочный прогон §59 (33 проверки) с декодом PNG-пикселей
+- src/ui/TouchControls.ts — виртуальный стик + кнопки рывка/зума/паузы (только тач)
+- scripts/smoke.mjs — приёмочный прогон §59 (40 проверок, вкл. мобильный тач-контекст)
 - tests/*.test.ts — орбита/трекинг/gaze/difficulty/score/rng/fsm + инварианты
   PlayerController (сфера R при 6000 кадров, анти-спираль большой окружности, полюса)
 
 ## Прогресс
 ✅ Полный цикл работает в браузере: интро→раслёт камеры→сбор→дух→пробуждение→взгляд→
 LOCK→CHARGE→BEAM (урон)→escape→СМЕРТЬ (залпы повторяются)→GAME OVER→рестарт.
-Smoke 33/33 PASS (реальные клики, зум-раслёт/упоры, регрессии водоворота, повторного
-залпа, золотой волны), консоль чистая. 43/43 юнит-тестов. tsc чистый, vite build OK.
+Smoke 40/40 PASS (реальные клики, зум-раслёт/упоры, регрессии водоворота, повторного
+залпа, золотой волны, + мобильный тач-контекст), консоль чистая. 47/47 юнит-тестов.
+tsc чистый, vite build OK.
 БАЛАНС v4 (по фидбеку юзера): спавн ×2 кроме золота (PHASES blue28-60/green8-14/red4-56,
 MAX_BLUE60/GREEN14/RED56, POOL.MAX_ENTITIES=170); зелёные лечат 7 (PLAYER.HEAL_GREEN);
 красных больше со временем; КРАСНЫЙ НЕ СНИМАЕТ HP — крадёт тягу: PlayerController.curseTimer

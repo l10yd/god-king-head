@@ -27,18 +27,29 @@ export class Screens {
 
   constructor(container: HTMLElement) {
     this.root = container;
+    const coarse = matchMedia('(pointer: coarse)').matches || (navigator.maxTouchPoints ?? 0) > 0;
+    const controlsHtml = coarse
+      ? `<div class="gk-controls">
+           <div class="k">СТИК</div><div>полёт по орбите (лев. половина)</div>
+           <div class="k">ДО УПОРА</div><div>ускорение (тратит шкалу тяги)</div>
+           <div class="k">РЫВОК</div><div>красная кнопка справа</div>
+           <div class="k">− / +</div><div>зум камеры</div>
+           <div class="k">‖</div><div>пауза (справа сверху)</div>
+         </div>`
+      : `<div class="gk-controls">
+           <div class="k">W A S D</div><div>полёт по орбите</div>
+           <div class="k">SHIFT</div><div>ускорение</div>
+           <div class="k">ПРОБЕЛ</div><div>рывок</div>
+           <div class="k">КОЛЕСО</div><div>приближение камеры</div>
+           <div class="k">ESC / P</div><div>пауза</div>
+           <div class="k">R</div><div>рестарт</div>
+         </div>`;
+
     container.insertAdjacentHTML('beforeend', `
       <div class="gk-screen intro">
         <h1 class="gk-title">ГОЛОВА БОГА-КОРОЛЯ</h1>
         <div class="gk-sub">ЛЕТАЙ ВОКРУГ БОГА · СОБИРАЙ ДУШИ · НЕ ДАЙ ЕМУ ПОСМОТРЕТЬ НА ТЕБЯ</div>
-        <div class="gk-controls">
-          <div class="k">W A S D</div><div>полёт по орбите</div>
-          <div class="k">SHIFT</div><div>ускорение</div>
-          <div class="k">ПРОБЕЛ</div><div>рывок</div>
-          <div class="k">КОЛЕСО</div><div>приближение камеры</div>
-          <div class="k">ESC / P</div><div>пауза</div>
-          <div class="k">R</div><div>рестарт</div>
-        </div>
+        ${controlsHtml}
         <button class="gk-big-btn start">НАЧАТЬ ПОЛЁТ</button>
         <div class="gk-tiny">СИНИЕ — ОЧКИ · ЗОЛОТО — ОЧКИ + ВОЛНА, ЖГУЩАЯ ДУХОВ · ЗЕЛЁНЫЕ — ЖИЗНЬ · КРАСНЫЕ — КРАДУТ ТЯГУ И РАЗГОНЯЮТ ЕГО ВЗГЛЯД</div>
       </div>

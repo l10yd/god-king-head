@@ -1,13 +1,15 @@
 /**
- * Input — клавиатура + колесо мыши (ТОЛЬКО зум) + опциональный gamepad.
+ * Input — клавиатура + колесо мыши (ТОЛЬКО зум) + gamepad + сенсорный стик.
  * Мышью-обзором НЕ управляем: free-look конфликтовал с базисом движения.
+ * TouchControls пишет в `touch` (непрерывный вклад) и `dashQueued/wheelAcc`
+ * через queueDash()/nudgeZoom() — всё сливается в read() с клавиатурой.
  */
 import { clamp } from '../math/Tracking';
 
 export interface InputFrame {
   x: number;        // -1..1 (A/D)
   y: number;        // -1..1 (W/S)
-  boost: boolean;   // SHIFT
+  boost: boolean;   // SHIFT (или стик, отклонённый до упора)
   dashEdge: boolean;// SPACE — срабатывает один раз на нажатие
   zoomStep: number; // колесо: +1/-1 на щелчок (кумулятивно за кадр)
 }
@@ -18,8 +20,15 @@ export class InputManager {
   private keys = new Set<string>();
   private dashQueued = false;
   private wheelAcc = 0;
+  /** непрерывный вклад сенсорного стика (TouchControls) */
+  readonly touch = { x: 0, y: 0, boost: false };
   /** эксклюзивные действия (пауза и т.п.) — подписки */
   onAction: (a: 'pause' | 'help' | 'debug' | 'mute' | 'restart' | 'start') => void = () => {};
+
+  /** рывок с сенсорной кнопки (эквивалент нажатия SPACE) */
+  queueDash(): void { this.dashQueued = true; }
+  /** зум кнопками ±: v в «щелчках колеса» (+ = отдалить) */
+  nudgeZoom(v: number): void { this.wheelAcc += v; }
 
   attach(_el: HTMLElement): void {
     window.addEventListener('keydown', this.kd);
@@ -73,6 +82,12 @@ export class InputManager {
     let x = this.axis('KeyA', 'KeyD') + this.axis('ArrowLeft', 'ArrowRight');
     let y = this.axis('KeyS', 'KeyW') + this.axis('ArrowDown', 'ArrowUp');
     let boost = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
+    // сенсорный стик — добавляем к клавиатуре (климпим, чтобы не >1)
+    if (this.touch.x !== 0 || this.touch.y !== 0) {
+      x = clamp(x + this.touch.x, -1, 1);
+      y = clamp(y + this.touch.y, -1, 1);
+    }
+    if (this.touch.boost) boost = true;
     // gamepad (если есть — добавляем, не перезаписываем)
     const pads = navigator.getGamepads?.() ?? [];
     for (const p of pads) {

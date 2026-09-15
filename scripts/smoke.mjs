@@ -357,7 +357,93 @@ await sleep(1200);
 const sr = await peek();
 check('рестарт: полный сброс', sr.phase === 'PLAYING' && sr.hp === 100 && sr.redTouched === 0 && !sr.awakened);
 
-// ---------- 8. стабильность кадров ----------
+// ---------- 8. сенсорное управление (мобильный контекст) ----------
+{
+  // десктоп-регрессия: на машине без тача DOM тач-слоя вообще не создаётся
+  const noTouchDom = await page.evaluate(() => !document.querySelector('.gk-touch'));
+  check('десктоп: тач-слой не создаётся', noTouchDom);
+
+  const mctx = await browser.newContext({
+    viewport: { width: 393, height: 851 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2,
+  });
+  const mp = await mctx.newPage();
+  const merrs = [];
+  mp.on('console', (m) => { if (m.type() === 'error') merrs.push(m.text().slice(0, 200)); });
+  mp.on('pageerror', (e) => merrs.push(String(e.message).slice(0, 200)));
+  await mp.goto(URL, { waitUntil: 'load', timeout: 60000 });
+  await mp.waitForFunction(() => !!window.__GK, null, { timeout: 30000 });
+  await sleep(1500);
+  // РЕАЛЬНЫЙ тап пальцем по кнопке «НАЧАТЬ ПОЛЁТ»
+  const sb = await mp.locator('.gk-screen.intro .start').boundingBox();
+  await mp.touchscreen.tap(sb.x + sb.width / 2, sb.y + sb.height / 2);
+  await mp.waitForFunction(() => window.__GK.debugPeek().phase === 'PLAYING', null, { timeout: 30000 });
+  // тач-слой виден (первое касание случилось + фаза PLAYING)
+  let tv = false;
+  for (let i = 0; i < 15; i++) {
+    tv = await mp.evaluate(() => !!window.__GK.debugPeek().touch && !document.querySelector('.gk-touch').classList.contains('hidden'));
+    if (tv) break;
+    await sleep(300);
+  }
+  check('моб.: тач-слой виден в PLAYING', tv);
+  // дождаться стартового раслёта камеры (input-лок)
+  for (let i = 0; i < 80; i++) {
+    if ((await mp.evaluate(() => window.__GK.debugPeek())).controlLock <= 0) break;
+    await sleep(250);
+  }
+  // кнопки зума −/+ (колесо недоступно на телефоне)
+  const zbb = await mp.locator('.gk-zoom-btn.zin').boundingBox();
+  await mp.touchscreen.tap(zbb.x + zbb.width / 2, zbb.y + zbb.height / 2);
+  let zt = 3;
+  for (let i = 0; i < 15; i++) {
+    zt = (await mp.evaluate(() => window.__GK.debugPeek())).zoomTarget;
+    if (zt < 2.5) break;
+    await sleep(250);
+  }
+  check('моб.: кнопка «−» приближает камеру', zt < 2.5, `zoomTarget=${zt.toFixed(2)}`);
+  // «зажать» стик вправо до упора: синтетические pointer-события (drag в API нет)
+  const d0 = await mp.evaluate(() => window.__GK.debugPlayerDir());
+  await mp.evaluate(() => {
+    const zone = document.querySelector('.gk-stick-zone');
+    const r = zone.getBoundingClientRect();
+    const ox = r.left + r.width / 2, oy = r.top + r.height / 2;
+    const P = (t, x, y) => zone.dispatchEvent(new PointerEvent(t, {
+      pointerId: 42, pointerType: 'touch', isPrimary: true, clientX: x, clientY: y, bubbles: true,
+    }));
+    window.__stickUp = () => zone.dispatchEvent(new PointerEvent('pointerup', { pointerId: 42, pointerType: 'touch', isPrimary: true, bubbles: true }));
+    P('pointerdown', ox, oy);
+    P('pointermove', ox + 90, oy); // >62px — полное отклонение → буст
+  });
+  let boostSeen = false, movedAng = 0;
+  for (let i = 0; i < 24; i++) {
+    await sleep(300);
+    const st = await mp.evaluate(() => window.__GK.debugPeek());
+    const d1 = await mp.evaluate(() => window.__GK.debugPlayerDir());
+    movedAng = Math.acos(Math.max(-1, Math.min(1, d0.x * d1.x + d0.y * d1.y + d0.z * d1.z)));
+    if (st.boosting) boostSeen = true;
+    if (boostSeen && movedAng > 0.05) break;
+  }
+  check('моб.: стик двигает игрока', movedAng > 0.03, `дуга=${movedAng.toFixed(3)} рад`);
+  check('моб.: стик до упора = SHIFT-буст', boostSeen);
+  // кнопка РЫВОК — реальный тап, при «удержанном» стике (мульти-тач)
+  const dbb = await mp.locator('.gk-dash-btn').boundingBox();
+  await mp.touchscreen.tap(dbb.x + dbb.width / 2, dbb.y + dbb.height / 2);
+  let dashSeen = false;
+  for (let i = 0; i < 12; i++) {
+    const st = await mp.evaluate(() => window.__GK.debugPeek());
+    if (st.dashTimer > 0 || st.dashCooldown > 1.5) { dashSeen = true; break; }
+    await sleep(200);
+  }
+  check('моб.: кнопка РЫВОК срабатывает', dashSeen);
+  // отпустили стик → ввод обнуляется, игрок замедляется до дрейфа
+  await mp.evaluate(() => window.__stickUp());
+  await sleep(1200);
+  const stF = await mp.evaluate(() => window.__GK.debugPeek());
+  check('моб.: отпускание стика снимает ввод', !stF.boosting, `angVel=${stF.angVel.toFixed(3)}`);
+  check('моб.: консоль чистая', merrs.length === 0, merrs[0] ?? '');
+  await mctx.close();
+}
+
+// ---------- 9. стабильность кадров ----------
 let bad = 0, frames = 0;
 for (let i = 0; i < 12; i++) {
   const s = await peek();
