@@ -114,3 +114,48 @@ describe('PlayerController — полюса', () => {
     expect(pc.d.y).toBeLessThan(0.9);
   });
 });
+
+describe('PlayerController — истощение тяги (гистерезис)', () => {
+  it('зажатый SHIFT: опустошил шкалу → восстанавливается САМ до BOOST_REARM', () => {
+    const pc = new PlayerController();
+    pc.resetRun(new Vector3(0.75, 0.35, 0.55).normalize());
+    let sawDepleted = false;
+    let recoveredWhileHeld = false;
+    let boostingAfterDepletion = false;
+    let floorMeter: number = PLAYER.BOOST_MAX;
+    for (let i = 0; i < 900; i++) {
+      // 15 секунд HOLD: x=1, boost вжат и НЕ отпускается
+      pc.update(1 / 60, { x: 1, y: 0, boost: true, dash: false }, WORLD.ORBIT_RADIUS, 1);
+      if (pc.boostDepleted) sawDepleted = true;
+      if (sawDepleted) {
+        floorMeter = Math.min(floorMeter, pc.boostMeter);
+        if (!pc.boostDepleted) recoveredWhileHeld = true;
+        if (pc.boosting) boostingAfterDepletion = true;
+      }
+    }
+    expect(sawDepleted).toBe(true); // шкала действительно кончается (~2.1 c)
+    // ГЛАВНОЕ: без отпускания клавиши тяга вернулась (старый баг — «замерло на 12%»)
+    expect(recoveredWhileHeld).toBe(true);
+    expect(boostingAfterDepletion).toBe(true);
+    // и при этом никогда не проваливалась в болото ниже MIN_USE
+    expect(floorMeter).toBeGreaterThanOrEqual(PLAYER.BOOST_MIN_USE - 0.7);
+    expect(floorMeter).toBeLessThan(PLAYER.BOOST_MIN_USE * 2);
+  });
+
+  it('отпустил SHIFT на залитой шкале — флаг истощения снимается сразу', () => {
+    const pc = new PlayerController();
+    pc.resetRun(new Vector3(0.75, 0.35, 0.55).normalize());
+    for (let i = 0; i < 600 && !pc.boostDepleted; i++) {
+      pc.update(1 / 60, { x: 1, y: 0, boost: true, dash: false }, WORLD.ORBIT_RADIUS, 1);
+    }
+    expect(pc.boostDepleted).toBe(true);
+    pc.update(1 / 60, { x: 1, y: 0, boost: false, dash: false }, WORLD.ORBIT_RADIUS, 1);
+    expect(pc.boostDepleted).toBe(false);
+    // и сразу после отпускания шкала начинает расти вверх
+    const before = pc.boostMeter;
+    for (let i = 0; i < 30; i++) {
+      pc.update(1 / 60, { x: 1, y: 0, boost: false, dash: false }, WORLD.ORBIT_RADIUS, 1);
+    }
+    expect(pc.boostMeter).toBeGreaterThan(before);
+  });
+});

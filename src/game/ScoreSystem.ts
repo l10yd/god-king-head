@@ -86,6 +86,12 @@ export class ScoreSystem {
     return gained;
   }
 
+  /** Дух сожжён лучом головы — фиксированный бонус (не через комбо) */
+  spiritBurned(): number {
+    this.add(SCORE.SPIRIT_BURNED);
+    return SCORE.SPIRIT_BURNED;
+  }
+
   damageTaken(): void {
     if (this.mult > 1 || this.comboCount > 0) {
       this.mult = 1;

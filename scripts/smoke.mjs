@@ -228,6 +228,31 @@ for (let i = 0; i < 60; i++) {
   await sleep(600);
 }
 
+// ---------- 3.75 истощение тяги при УДЕРЖАНИИ (регрессия «шкала замерла на 12%») ----------
+{
+  await page.evaluate(() => window.__GK.debugStartRun(16));
+  for (let i = 0; i < 40; i++) { // ждём конца разлёта (ввод залочен)
+    if ((await peek()).controlLock <= 0) break;
+    await sleep(300);
+  }
+  await page.keyboard.down('KeyD');
+  await page.keyboard.down('ShiftLeft');
+  let sawDepleted = false, recovered = false, floor = 100;
+  for (let i = 0; i < 70; i++) { // держим и НЕ отпускаем
+    const g = await peek();
+    if (g.boostDepleted) sawDepleted = true;
+    if (sawDepleted) {
+      floor = Math.min(floor, g.boostMeter);
+      if (g.boosting) recovered = true; // буст вернулся БЕЗ отпускания клавиши
+    }
+    if (recovered) break;
+    await sleep(300);
+  }
+  await page.keyboard.up('KeyD');
+  await page.keyboard.up('ShiftLeft');
+  check('SHIFT удерживаемый: тяга кончается и ВОССТАНАВЛИВАЕТСЯ сама', sawDepleted && recovered, `пол=${floor.toFixed(0)}%`);
+}
+
 // ---------- 4. столкновение с духом → пробуждение ----------
 await page.evaluate(() => window.__GK.debugStartRun(7));
 await sleep(1500);
@@ -286,15 +311,63 @@ check('BEAM: урон по игроку', hpDuringBeam !== null && hpDuringBeam 
   // 6 духов кольцом в 40 м от игрока (< радиуса волны 60)
   await page.evaluate(() => window.__GK.debugRedsRing(6, 40));
   await sleep(400);
-  const before = (await peek()).reds;
+  const g0 = await peek();
+  const before = g0.reds;
+  const purged0 = g0.spiritsPurged ?? 0;
   await page.evaluate(() => window.__GK.debugGoldNearPlayer());
-  let after = before;
-  for (let i = 0; i < 20; i++) {
+  let st56 = g0;
+  for (let i = 0; i < 24; i++) {
     await sleep(250);
-    after = (await peek()).reds;
-    if (after <= before - 3) break;
+    st56 = await peek();
+    if ((st56.spiritsPurged ?? 0) > purged0) break;
   }
-  check('золотая волна испепеляет ближайших духов', after <= before - 3, `reds ${before} -> ${after}`);
+  check('золотая волна испепеляет ближайших духов', (st56.spiritsPurged ?? 0) > purged0, `+${(st56.spiritsPurged ?? 0) - purged0}`);
+  // «молчаливый» респаун: убитые волной тотчас занимаются новыми ДАЛЕКО — число не падает
+  let st56b = st56;
+  for (let i = 0; i < 16; i++) {
+    st56b = await peek();
+    if (st56b.reds >= before) break;
+    await sleep(300);
+  }
+  check('духи-замены держат численность врагов (не падает после волны)', st56b.reds >= before, `reds ${before} -> ${st56b.reds}`);
+}
+
+// ---------- 5.65 луч сжигает духа: скрытое HP → очки + красная волна + замена ----------
+{
+  await page.evaluate(() => window.__GK.debugHeal());
+  await page.evaluate(() => window.__GK.debugFaceGaze());
+  let fired = false;
+  for (let i = 0; i < 50; i++) { // ждём залп
+    const g = await peek();
+    if (g.hp < 60) await page.evaluate(() => window.__GK.debugHeal());
+    if (g.gazePhase === 'FIRE') { fired = true; break; }
+    await sleep(300);
+  }
+  const pre = await peek();
+  const burned0 = pre.spiritsBurned ?? 0;
+  const reds0 = pre.reds;
+  let burnedNow = burned0;
+  for (let i = 0; i < 60 && burnedNow === burned0; i++) {
+    // «жертва» ставится заново к текущей оси луча, пока не сгорит (1.7 игр. сек в конусе)
+    await page.evaluate(() => {
+      const g = window.__GK.debugPeek();
+      if (g.gazePhase !== 'FIRE') window.__GK.debugFaceGaze();
+      if (g.hp < 55) window.__GK.debugHeal();
+      window.__GK.debugBurnTarget();
+    });
+    await sleep(300);
+    burnedNow = (await peek()).spiritsBurned ?? 0;
+  }
+  check('луч сжигает духа в своём конусе (скрытое HP) — +очки', burnedNow > burned0, `burned=${burnedNow}`);
+  let wv = pre;
+  for (let i = 0; i < 12; i++) {
+    wv = await peek();
+    if (wv.cursed || wv.curseTimer > 0) break;
+    await sleep(300);
+  }
+  check('красная волна от трупа замедляет при пересечении', !!(wv.cursed || wv.curseTimer > 0), `curseT=${(wv.curseTimer ?? 0).toFixed?.(2) ?? wv.curseTimer}`);
+  const post = await peek();
+  check('сгоревший дух тотчас заменён (численность не проседает)', post.reds >= reds0 - 1, `reds ${reds0} -> ${post.reds}`);
 }
 
 // ---------- 6. near-miss/escape ----------
@@ -352,6 +425,29 @@ await page.click('.gk-screen.settings .close', { timeout: 5000 });
 await sleep(400);
 const settingsClosed = await page.evaluate(() => !!document.querySelector('.gk-screen.settings')?.classList.contains('hidden'));
 check('настройки закрываются', settingsClosed);
+// «?» — полноэкранный справочник с автопаузой (старый баг: кнопка «не работала»)
+await page.click('.gk-btns [data-act="help"]', { timeout: 5000 });
+await sleep(400);
+const helpVis = await page.evaluate(() => {
+  const el = document.querySelector('.gk-screen.help');
+  return !!el && !el.classList.contains('hidden');
+});
+check('«?» открывает панель управления', helpVis);
+const hp1 = await peek();
+check('панель «?» ставит игру на паузу', hp1.phase === 'PAUSED', `phase=${hp1.phase}`);
+await page.click('.gk-screen.help .close', { timeout: 5000 });
+await sleep(700);
+const helpHid = await page.evaluate(() => !!document.querySelector('.gk-screen.help')?.classList.contains('hidden'));
+check('«ЗАКРЫТЬ» в панели — закрывает и снимает паузу', helpHid && (await peek()).phase === 'PLAYING');
+// та же панель с клавиши H, закрытие по клику на фон, ESC — тоже закрывает
+await page.keyboard.press('KeyH');
+await sleep(400);
+const helpViaH = await page.evaluate(() => !document.querySelector('.gk-screen.help')?.classList.contains('hidden'));
+check('клавиша H открывает панель', helpViaH);
+await page.mouse.click(30, 30); // клик по фону панели
+await sleep(700);
+const helpBgClosed = await page.evaluate(() => !!document.querySelector('.gk-screen.help')?.classList.contains('hidden'));
+check('клик по фону панели закрывает её', helpBgClosed && (await peek()).phase === 'PLAYING');
 await page.evaluate(() => window.__GK.startRun());
 await sleep(1200);
 const sr = await peek();

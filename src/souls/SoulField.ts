@@ -6,7 +6,7 @@
  * преследование (вероятность растёт с danger).
  */
 import { Group, Vector3 } from 'three';
-import { WORLD, PLAYER, DIFFICULTY, POOL } from '../constants';
+import { WORLD, PLAYER, DIFFICULTY, POOL, SPIRITS } from '../constants';
 import { makeSoul, createSoulMesh, stepSoulMotion, type SoulData, type SoulKind } from './Soul';
 import { targetPopulation, redSpeed, redChaseChance } from '../game/Difficulty';
 import type { Rng } from '../math/rng';
@@ -44,6 +44,7 @@ export class SoulField {
     this.souls.length = 0;
     this.spawnAccum.blue = this.spawnAccum.green = this.spawnAccum.red = this.spawnAccum.gold = 0;
     this.tickTimer = 0;
+    this.pendingRespawns = 0;
   }
 
   /** Начальная раскладка рана: «тихая гавань», но уже плотная (v4 ×2) */
@@ -60,8 +61,8 @@ export class SoulField {
     return c;
   }
 
-  private spawn(kind: SoulKind, playerDir: Vector3, nearPlayer = false): void {
-    const sd = makeSoul(kind, this.rng, playerDir, nearPlayer ? 0.25 : 0.7);
+  private spawn(kind: SoulKind, playerDir: Vector3, nearPlayer = false, far = false): void {
+    const sd = makeSoul(kind, this.rng, playerDir, far ? SPIRITS.RESPAWN_MIN_ANGLE : nearPlayer ? 0.25 : 0.7);
     const mesh = this.obtainMesh(kind, sd.large);
     mesh.position.copy(sd.pos);
     sd.mesh = mesh;
@@ -184,8 +185,10 @@ export class SoulField {
         const pulse = 1 + Math.sin(time * (s.kind === 'red' ? redRate : 2.1) + s.seed)
           * (s.kind === 'red' ? redAmp : 0.12);
         const fadeScale = s.kind === 'red' ? 1 : s.spawnFade;
+        // обжигающийся в луче дух «сыплется» — уменьшается вместе с HP
+        const burnShrink = s.kind === 'red' ? 0.55 + 0.45 * Math.max(0, s.hp) / SPIRITS.HP : 1;
         const chaseBoost = s.chase ? 1.12 : 1;
-        s.mesh.scale.setScalar(pulse * (0.5 + 0.5 * fadeScale) * chaseBoost);
+        s.mesh.scale.setScalar(pulse * (0.5 + 0.5 * fadeScale) * chaseBoost * burnShrink);
         if (s.kind === 'red') {
           s.mesh.lookAt(0, 0, 0);
           s.mesh.rotateY(Math.PI);
@@ -199,6 +202,7 @@ export class SoulField {
         if (s.kind === 'red') {
           spiritTouched.push(s);
           this.removeAt(i);
+          this.redDied(); // дух рассеялся — поддержим численность за спиной игрока
         } else {
           collected.push(s);
           this.removeAt(i);
@@ -211,7 +215,40 @@ export class SoulField {
         this.removeAt(i);
       }
     }
+
+    // --- «замена павших»: смерть красного мгновенно порождает нового ДАЛЕКО от
+    //     игрока (за спиной, за краем обзора на макс. зуме). Без уведомлений —
+    //     просто плотность врагов не падает. ---
+    while (this.pendingRespawns > 0) {
+      this.pendingRespawns--;
+      this.spawn('red', playerDir, false, true);
+    }
     return { collected, spiritTouched };
+  }
+
+  /** смерть красного: 1-в-1 замена за спиной (на след. тике update) */
+  private redDied(): void { this.pendingRespawns++; }
+  private pendingRespawns = 0;
+
+  /**
+   * Луч головы жжёт духов в своём конусе. axisDir — мировая единичная ось луча.
+   * Позиции сгоревших — в out. Возвращает число сгоревших.
+   */
+  beamBurn(axisDir: Vector3, dt: number, out: Vector3[]): number {
+    let killed = 0;
+    for (let i = this.souls.length - 1; i >= 0; i--) {
+      const s = this.souls[i];
+      if (!s.alive || s.kind !== 'red') continue;
+      if (s.n.angleTo(axisDir) > SPIRITS.BURN_CONE) continue;
+      s.hp -= SPIRITS.BURN_PER_SEC * dt;
+      if (s.hp <= 0) {
+        out.push(s.pos.clone());
+        this.removeAt(i);
+        this.redDied();
+        killed++;
+      }
+    }
+    return killed;
   }
 
   /**
@@ -227,6 +264,7 @@ export class SoulField {
         if (out) out.push(s.pos.clone());
         this.retire(s);
         this.souls.splice(i, 1);
+        this.redDied(); // золотая волна не «разбирает» сложность — место займёт новый дух
         killed++;
       }
     }

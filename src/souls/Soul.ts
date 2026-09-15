@@ -12,7 +12,7 @@ import {
 } from 'three';
 import { createSoulMaterial, createSpiritMaterial, createGlowSpriteMaterial } from '../render/Shaders';
 import { makeGlowTexture } from '../render/Textures';
-import { WORLD } from '../constants';
+import { WORLD, SPIRITS } from '../constants';
 import { orbitRandom } from '../math/Orbit';
 import type { Rng } from '../math/rng';
 
@@ -35,6 +35,8 @@ export interface SoulData {
   bob: number;
   /** секунды в режиме погони (для «поводка») */
   chaseT: number;
+  /** скрытое HP (красные: сгорают в луче; остальным не применяется) */
+  hp: number;
   /** инверсия материализации (0→1 за ~0.6c, защита от спавна «в игрока») */
   spawnFade: number;
 }
@@ -94,6 +96,7 @@ export function makeSoul(kind: SoulKind, rng: Rng, playerDir: Vector3, minAngle 
     mesh: null,
     bob: rng() * Math.PI * 2,
     chaseT: 0,
+    hp: kind === 'red' ? SPIRITS.HP : 1,
     spawnFade: 0,
   };
 }

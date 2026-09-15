@@ -2,7 +2,7 @@
 
 ## Стек
 TypeScript 5.9 strict · Vite 7 · three 0.180 (+@types/three) · EffectComposer-пост ·
-WebAudio-процедур · vitest (47 тестов, input.test — jsdom) · playwright-core + системный Chrome (smoke).
+WebAudio-процедур · vitest (52 теста, input.test — jsdom) · playwright-core + системный Chrome (smoke).
 npm в песочнице: `--cache ./.npm-cache --ignore-scripts`.
 
 ## Архитектура
@@ -17,7 +17,17 @@ npm в песочнице: `--cache ./.npm-cache --ignore-scripts`.
 Оркестрация — Game.ts (состояния INTRO/PLAYING/PAUSED/DYING/GAMEOVER, timeScale,
 сглаженные FX-униформы в финальный пост-шейдер). Пулинг: меши душ + кольцевой буфер
 частиц 2600. QA-хуки окна: `window.__GK` (debugPeek/teleport/faceGaze/spirit/goldNearPlayer/
-redsRing/kill/heal/playerDir; в peek — cursed, curseTimer, reds, boosting, dashTimer, touch).
+redsRing/burnTarget/kill/heal/playerDir; в peek — cursed, curseTimer, reds, boosting,
+boostMeter/boostDepleted, spiritsBurned/spiritsPurged, dashTimer, touch).
+Духи: скрытое HP (SPIRITS.HP=80), в конусе луча (0.09 рад) горят по 48/с
+(SoulField.beamBurn, вызывать из Game при FIRE) → +150 очков, красная волна
+(пул 3 колец в Game.redWaves, R=46/1.5s, пересечение → pc.curse(1.6)). ЛЮБАЯ
+смерть красного (touch/purge/burn) → pendingRespawns в SoulField → в ТОМ ЖЕ
+update спавн замены far=minAngle 2.1 рад (за спиной, молча, полный HP).
+HELP-панель: Screens .gk-screen.help (кнопка ?/клавиша H → Game.toggleHelpPanel:
+PAUSED без экрана паузы; закрытие ЛЮБОЕ через hideHelp → onHelpClosed → resume).
+Буст-гистерезис: PlayerController.boostDepleted — опустошил при зажатом → блок
+до наполнения PLAYER.BOOST_REARM=35 → сам вернулся; отпускание клавиши снимает флаг.
 ТАЧ (src/ui/TouchControls.ts): слой в body z-8, создаётся ТОЛЬКО если supported()
 (maxTouchPoints/coarse); виден в PLAYING/DYING после первого touchstart (гибрид с
 мышью не трогается). Стикт пишет в input.touch (непрерывно), queueDash()/nudgeZoom()
@@ -43,16 +53,21 @@ COOLDOWN выходит по таймеру (НЕ по dot — голова-тр
 - src/render/Renderer.ts — композер + FINAL_SHADER (teal-orange, vignette, grain, CA,
   redPulse-к-краям, whiteFlash, heat)
 - src/ui/TouchControls.ts — виртуальный стик + кнопки рывка/зума/паузы (только тач)
-- scripts/smoke.mjs — приёмочный прогон §59 (40 проверок, вкл. мобильный тач-контекст)
-- tests/*.test.ts — орбита/трекинг/gaze/difficulty/score/rng/fsm + инварианты
-  PlayerController (сфера R при 6000 кадров, анти-спираль большой окружности, полюса)
+- scripts/smoke.mjs — приёмочный прогон §59 (50 проверок, вкл. мобильный тач-контекст)
+- tests/*.test.ts — орбита/трекинг/gaze/difficulty/score/rng/fsm/souls (выжигание+
+  респаун) + инварианты PlayerController (сфера R при 6000 кадров, анти-спираль
+  большой окружности, полюса, проклятие, гистерезис истощения тяги)
 
 ## Прогресс
 ✅ Полный цикл работает в браузере: интро→раслёт камеры→сбор→дух→пробуждение→взгляд→
 LOCK→CHARGE→BEAM (урон)→escape→СМЕРТЬ (залпы повторяются)→GAME OVER→рестарт.
-Smoke 40/40 PASS (реальные клики, зум-раслёт/упоры, регрессии водоворота, повторного
-залпа, золотой волны, + мобильный тач-контекст), консоль чистая. 47/47 юнит-тестов.
-tsc чистый, vite build OK.
+Smoke 50/50 PASS (реальные клики, зум-раслёт/упоры, регрессии водоворота, повторного
+залпа, золотой волны, застывшего буста, выжигания духа + красной волны + молчаливой
+замены, help-панели, + мобильный тач-контекст), консоль чистая. 52/52 юнит-тестов.
+tsc чистый, vite build OK. v1.3 (раунд 6): починен «?» (полноценная help-панель с
+авто-паузой вместо мигания подсказки) и застывание шкалы тяги при зажатом Shift;
+красные духи получили скрытое HP и сгорают в луче (+150, красная волна-проклятие,
+мгновенная замена за спиной — численность врагов не падает).
 БАЛАНС v4 (по фидбеку юзера): спавн ×2 кроме золота (PHASES blue28-60/green8-14/red4-56,
 MAX_BLUE60/GREEN14/RED56, POOL.MAX_ENTITIES=170); зелёные лечат 7 (PLAYER.HEAL_GREEN);
 красных больше со временем; КРАСНЫЙ НЕ СНИМАЕТ HP — крадёт тягу: PlayerController.curseTimer
@@ -84,6 +99,14 @@ Dev-порт 5199 (5173 занят nebula-rush в этом воркспейсе;
   обгоняется».
 - **Квадратное гало душ**: спрайты нимбов без map → белый аддитивный квадрат (у красных
   духов спрайтов нет — потому и «только у душ»). map=makeGlowTexture обязателен.
+- **«Не работает кнопка ?»** (найдено юзером, раунд 6): обработчик лишь подсвечивал тонкую
+  нижнюю подсказку, которая и так видна → эффект нулевой. Плюс Input слал экшн 'help',
+  а Game его не ветвил (H мёртвая). Лечится полноценной панелью (см. Архитектура HELP).
+  Стерегут smoke-секция 7 (клик «?», пауза, H, клик по фону).
+- **Зашкальная шкала тяги при зажатом Shift** (найдено юзером, раунд 6): wantBoost
+  требовал meter>MIN_USE(12); на границе drain/regen осциллировали — метр «замирал» на
+  12% и при удержании never восстанавливался. Лечится флагом boostDepleted + планкой
+  BOOST_REARM=35 (гистерезис). Стерегут unit «истощение тяги» + smoke 3.75.
 - ВНИМАНИЕ: правки файлов проекта — только write/edit-инструментами. Перезапись
   PowerShell `Get-Content|Set-Content` ломает кириллицу (PS5.1 читает UTF-8 без BOM как ANSI).
 
@@ -93,6 +116,8 @@ Dev-порт 5199 (5173 занят nebula-rush в этом воркспейсе;
 - Web Worker не нужен: логика кадра дёшева (решение задокументировано)
 
 ## Замечания
-- `package.json` править точечно: vite крашится на EBUSY временного tmp-dir редактора
+- `package.json` править точечно: vite крашится на EBUSY временного tmp-dir редактора;
+  в vite.config уже стоит `server.watch.ignored: ['**/.*tmpdir/**','**/*.tmp']` — лечит
+  и правки исходников на лету (раньше dev-сервер падал посреди работы)
 - Vite dev + Chrome headless: `--use-angle=swiftshader --enable-unsafe-swiftshader`
 - Игровые таймеры при низком fps идут медленнее wall-time (dt clamp 0.05) — в тестах поллить

@@ -30,7 +30,7 @@ import { dangerScore, headTrackSpeed, eyeTrackSpeed, beamDamage, beamTurnSpeed }
 import { mulberry32, seedLabel } from './math/rng';
 import { damp, clamp, clamp01, smoothstep } from './math/Tracking';
 import { createShockRingMaterial } from './render/Shaders';
-import { PLAYER, HEAD, WORLD, CAM, SCORE, DIFFICULTY, GOLD_WAVE, QUALITY_PRESETS, type QualityLevel } from './constants';
+import { PLAYER, HEAD, WORLD, CAM, SCORE, DIFFICULTY, GOLD_WAVE, SPIRITS, QUALITY_PRESETS, type QualityLevel } from './constants';
 
 export type Phase = 'INTRO' | 'PLAYING' | 'PAUSED' | 'DYING' | 'GAMEOVER';
 
@@ -51,6 +51,8 @@ const _vT = new Vector3();
 const _posT = new Vector3();
 const _originL = new Vector3();
 const _originR = new Vector3();
+/** позиции духов, сгоревших в луче на этом кадре (обычно пусто) */
+const _burnOut: Vector3[] = [];
 
 export interface Settings {
   quality: QualityLevel;
@@ -125,6 +127,10 @@ export class Game {
   private waveMat!: ShaderMaterial;
   private waveT = -1; // сек с момента запуска волны; <0 — не активна
   private waveOrigin = new Vector3();
+  /** красные волны от сгоревших духов (пул колец): пересечение = замедление */
+  private redWaves: { t: number; hit: boolean; origin: Vector3; mesh: Mesh; mat: ShaderMaterial }[] = [];
+  private purgedTotal = 0;
+  private burnedTotal = 0;
   private nearMissSlowmo = 0;
   private lastHurtSource: 'beam' | 'spirit' = 'beam';
 
@@ -170,6 +176,16 @@ export class Game {
     this.waveRing.visible = false;
     this.waveRing.renderOrder = 12;
     this.world.scene.add(this.waveRing);
+    // пул колец красных волн (дух сгорел → волна расходится, игрока замедляет)
+    for (let i = 0; i < 3; i++) {
+      const mat = createShockRingMaterial();
+      mat.uniforms.uColor.value = new Color('#ff5030');
+      const mesh = new Mesh(new RingGeometry(0.78, 1.0, 56), mat);
+      mesh.visible = false;
+      mesh.renderOrder = 12;
+      this.world.scene.add(mesh);
+      this.redWaves.push({ t: -1, hit: false, origin: new Vector3(), mesh, mat });
+    }
     this.seed = (Date.now() ^ (performance.now() * 1000)) >>> 0;
     this.rng = mulberry32(this.seed);
     this.field = new SoulField(this.fieldRoot, this.rng);
@@ -211,8 +227,14 @@ export class Game {
     this.screens.onStart = () => this.startRun();
     this.screens.onRestart = () => this.startRun();
     this.screens.onResume = () => this.togglePause();
+    this.screens.onHelpClosed = () => {
+      if (!this.helpPaused) return;
+      this.helpPaused = false;
+      if (this.fsm.current === 'PAUSED') this.fsm.current = 'PLAYING';
+    };
     this.hud.onBtn((act) => {
       if (act === 'settings') {
+        if (this.screens.helpOpen()) this.toggleHelpPanel(); // закрыть help (и снять его паузу)
         const open = this.screens.toggleSettings();
         if (open) this.screens.bindSettings({
           ...this.settings,
@@ -220,12 +242,17 @@ export class Game {
         } as Settings & { onChange: (s: Settings) => void });
       }
       if (act === 'help') {
-        this.hintShowTimer = 4;
-        this.hud.setHintVisible(true);
+        // «?» — полноэкранный справочник (клик в любом месте закрывает).
+        // Читаем с паузой: нечестно сгорать, пока смотришь легенду.
+        this.toggleHelpPanel();
       }
     });
     this.input.onAction = (a) => {
-      if (a === 'pause') this.togglePause();
+      if (a === 'pause') {
+        if (this.screens.helpOpen()) this.toggleHelpPanel();
+        else this.togglePause();
+      }
+      if (a === 'help') this.toggleHelpPanel();
       if (a === 'debug') { this.debugMode = !this.debugMode; this.hud.toggleDebug(); }
       if (a === 'restart' && (this.fsm.is('PLAYING') || this.fsm.is('GAMEOVER'))) this.startRun();
       if (a === 'start' && this.fsm.is('INTRO')) this.startRun();
@@ -283,9 +310,14 @@ export class Game {
     this.controlLock = CAM.ZOOM_INTRO_TIME;
     this.waveT = -1;
     this.waveRing.visible = false;
+    for (const w of this.redWaves) { w.t = -1; w.hit = false; w.mesh.visible = false; }
+    this.purgedTotal = 0;
+    this.burnedTotal = 0;
     this.hintShowTimer = 8;
     this.hud.setHintVisible(true);
     this.screens.hideOver();
+    this.screens.hideHelp();
+    this.helpPaused = false; // startRun сам вернёт PLAYING
     // игрок стартует «сбоку-спереди» от лица спящей головы
     const startDir = new Vector3(0.75, 0.35, 0.55).normalize();
     this.pc.resetRun(startDir);
@@ -311,6 +343,15 @@ export class Game {
       this.fsm.current = 'PLAYING';
       this.screens.hidePause();
     }
+  }
+
+  /** Панель «?» ставим ПАУЗОЙ (без экрана паузы — он под ней), снимаем при закрытии */
+  private helpPaused = false;
+  private toggleHelpPanel(): void {
+    const opened = this.screens.toggleHelp();
+    // открытие: заморозить; закрытие: resume — в onHelpClosed (один путь для любых закрытий)
+    if (opened && this.fsm.current === 'PLAYING') { this.fsm.current = 'PAUSED'; this.helpPaused = true; }
+    this.audio.click();
   }
 
   /** главный цикл */
@@ -458,6 +499,14 @@ export class Game {
       beamTurnSpeed(this.danger),
     );
 
+    // у луча есть и «мелкая» работа: красные духи в его конусе сгорают (скрытое HP)
+    if (playing && this.gaze.phase === GazePhase.FIRE && this.beam.intensity > 0.4) {
+      _burnOut.length = 0;
+      if (this.field.beamBurn(this.beam.axis, sdt, _burnOut) > 0) {
+        for (const p of _burnOut) this.onSpiritBurned(p);
+      }
+    }
+
     // урон луча
     if (playing && this.gaze.phase === GazePhase.FIRE && this.beam.hitNow) {
       const dmg = beamDamage(this.danger) * sdt;
@@ -577,6 +626,30 @@ export class Game {
         this.waveRing.position.copy(this.waveOrigin).multiplyScalar(1 + k * 0.12);
       }
     }
+    // красные волны сгоревших духов: медленное кольцо; пересёк — проклятие
+    if (this.redWaves.length) {
+      for (const w of this.redWaves) {
+        if (w.t < 0) continue;
+        w.t += rdt;
+        const k = w.t / SPIRITS.WAVE_DURATION;
+        if (k >= 1) { w.t = -1; w.mesh.visible = false; w.mat.uniforms.uOpacity.value = 0; continue; }
+        const e = 1 - (1 - k) * (1 - k);
+        const radius = SPIRITS.WAVE_RADIUS * e;
+        w.mesh.visible = true;
+        w.mesh.position.copy(w.origin);
+        w.mesh.quaternion.copy(this.rig.cam.quaternion);
+        w.mesh.scale.setScalar(2.5 + radius);
+        w.mat.uniforms.uOpacity.value = (1 - k) * 0.7;
+        if (!w.hit && playing && w.origin.distanceTo(playerPos) <= radius + 2) {
+          w.hit = true;
+          this.pc.curse(SPIRITS.WAVE_CURSE);
+          this.hud.float('КРАСНАЯ ВОЛНА', 'danger', playerPos, this.rig.cam);
+          this.audio.spiritHit();
+          this.hitFlash = Math.max(this.hitFlash, 0.6);
+          this.trauma = Math.max(this.trauma, 0.22);
+        }
+      }
+    }
     this.updateFxUniforms(rdt, gaze01, this.beam.intensity);
     this.hud.update({
       score: this.score.score, best: this.score.best, mult: this.score.mult,
@@ -681,6 +754,7 @@ export class Game {
     this.trauma = Math.max(this.trauma, 0.3);
     this.whiteFlash = Math.max(this.whiteFlash, 0.12);
     if (killed > 0) {
+      this.purgedTotal += killed;
       this.hud.banner(`ВОЛНА ИСПЕПЕЛИЛА ×${killed}`);
       this.score.purgedSpirits(killed);
       // мини-взрывы на месте уничтоженных
@@ -688,6 +762,23 @@ export class Game {
         this.fx.burst(pos, 24, 2.2, 1.0, 7, 1.8, 0.4, 0.1, 14);
       }
     }
+  }
+
+  /** Дух сгорел в луче: очки + взрыв + КРАСНАЯ ВОЛНА (пересечёшь — замедлит).
+   *  Замена ему спавнится сразу, но за спиной игрока — без уведомлений. */
+  private onSpiritBurned(pos: Vector3): void {
+    this.burnedTotal++;
+    this.score.spiritBurned();
+    this.hud.float(`+${SCORE.SPIRIT_BURNED}`, 'danger', pos, this.rig.cam);
+    this.fx.burst(pos, 30, 1.8, 1.0, 6, 1.9, 0.3, 0.08, 15);
+    this.audio.spiritHit();
+    // занять самый старый/свободный слот волны
+    let slot = this.redWaves[0];
+    for (const w of this.redWaves) if (w.t < slot.t) slot = w;
+    slot.t = 0;
+    slot.hit = false;
+    slot.origin.copy(pos).normalize().multiplyScalar(WORLD.ORBIT_RADIUS);
+    slot.mesh.visible = true;
   }
 
   private onSpiritTouched(s: import('./souls/Soul').SoulData, playerPos: Vector3, playing: boolean): void {
@@ -805,6 +896,19 @@ export class Game {
   debugGoldNearPlayer(): void {
     this.field.debugKindAt('gold', this.pc.position(new Vector3(), WORLD.ORBIT_RADIUS));
   }
+  /** QA: красный дух в конусе луча (но вне радиуса касания) — для теста выжигания.
+   *  Требует, чтобы голова уже вела луч на игрока (использовать с debugFaceGaze). */
+  debugBurnTarget(): void {
+    const player = this.pc.position(_posT, WORLD.ORBIT_RADIUS);
+    _vT.copy(player).normalize(); // радиальное направление игрока
+    // касательная к сфере в сторону луча: проецируем ось луча в плоскость ⟂ d
+    _v2.copy(this.beam.axis).addScaledVector(_vT, -this.beam.axis.dot(_vT));
+    if (_v2.lengthSq() < 1e-6) _v2.set(1, 0, 0).addScaledVector(_vT, -_vT.x);
+    _v2.normalize();
+    // ~18 м по касательной: угол ≈0.075 рад — в конусе луча (0.09), но вне касания (13.2)
+    const pos = _v2.multiplyScalar(18).add(player).normalize().multiplyScalar(WORLD.ORBIT_RADIUS);
+    this.field.debugKindAt('red', pos);
+  }
   /** QA: N духов по кругу на радиусе dist от игрока (для проверки волны) */
   debugRedsRing(n: number, dist: number): void {
     const center = this.pc.position(new Vector3(), WORLD.ORBIT_RADIUS);
@@ -869,10 +973,14 @@ export class Game {
       cursed: this.pc.cursed,
       curseTimer: this.pc.curseTimer,
       boosting: this.pc.boosting,
+      boostMeter: this.pc.boostMeter,
+      boostDepleted: this.pc.boostDepleted,
       dashTimer: this.pc.dashTimer,
       dashCooldown: this.pc.dashCooldown,
       /** есть ли тач-слой и виден ли он сейчас (smoke-проверка) */
       touch: !!this.touchCtl,
+      spiritsBurned: this.burnedTotal,
+      spiritsPurged: this.purgedTotal,
       zoom: this.zoom,
       zoomTarget: this.zoomTarget,
       /** угловая скорость игрока, рад/с (анти-водоворотная диагностика) */

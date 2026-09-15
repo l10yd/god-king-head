@@ -110,6 +110,10 @@
 }
 .gk-controls { display: grid; grid-template-columns: auto auto; gap: 6px 26px; font-size: 12px; color: #57647f; letter-spacing: .14em; margin-bottom: 44px; }
 .gk-controls .k { text-align: right; color: #93a6c9; font-family: monospace; }
+.gk-modal .gk-controls { margin-bottom: 22px; justify-items: center; }
+/* легенда душ в панели «?» */
+.gk-legend { display: flex; flex-direction: column; gap: 7px; font-size: 11px; letter-spacing: .12em; color: #57647f; text-align: left; }
+.gk-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 9px; box-shadow: 0 0 8px currentColor; vertical-align: baseline; }
 .gk-big-btn {
   pointer-events: auto; cursor: pointer; background: rgba(8, 14, 24, .5); color: #cfe4ff;
   border: 1px solid rgba(111, 232, 255, .45); padding: 14px 58px; font-size: 16px; letter-spacing: .45em;

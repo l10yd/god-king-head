@@ -19,11 +19,14 @@ export class Screens {
   private overEl!: HTMLElement;
   private pauseEl!: HTMLElement;
   private settingsEl!: HTMLElement;
+  private helpEl!: HTMLElement;
   private statsEl!: HTMLElement;
 
   onStart: () => void = () => {};
   onRestart: () => void = () => {};
   onResume: () => void = () => {};
+  /** панель help была закрыта (любым способом) — Game снимает «учебную» паузу */
+  onHelpClosed: () => void = () => {};
 
   constructor(container: HTMLElement) {
     this.root = container;
@@ -79,17 +82,33 @@ export class Screens {
           <div class="gk-opt" style="margin-top:18px;"><button class="gk-big-btn close" style="padding:8px 30px;font-size:12px;">ЗАКРЫТЬ</button></div>
         </div>
       </div>
+      <div class="gk-screen help hidden">
+        <div class="gk-modal">
+          <h3>УПРАВЛЕНИЕ</h3>
+          ${controlsHtml}
+          <div class="gk-legend">
+            <div><i style="background:#59d8ff"></i>синяя — очки</div>
+            <div><i style="background:#ffd75e"></i>золотая — очки + волна, жгущая духов</div>
+            <div><i style="background:#63e6a0"></i>зелёная — жизнь</div>
+            <div><i style="background:#ff5448"></i>красная — крадёт тягу, горит в луче</div>
+          </div>
+          <div class="gk-tiny" style="margin-top:14px">ESC — пауза &nbsp;·&nbsp; R — рестарт &nbsp;·&nbsp; M — звук</div>
+          <div class="gk-opt" style="margin-top:16px;"><button class="gk-big-btn close" style="padding:8px 30px;font-size:12px;">ЗАКРЫТЬ</button></div>
+        </div>
+      </div>
     `);
     this.introEl = container.querySelector('.intro')!;
     this.overEl = container.querySelector('.over')!;
     this.pauseEl = container.querySelector('.pause')!;
     this.settingsEl = container.querySelector('.settings')!;
+    this.helpEl = container.querySelector('.help')!;
     this.statsEl = container.querySelector('[data-stats]')!;
 
     this.introEl.querySelector('.start')!.addEventListener('click', () => this.onStart());
     this.overEl.querySelector('.restart')!.addEventListener('click', () => this.onRestart());
     this.pauseEl.addEventListener('click', () => this.onResume());
     this.settingsEl.querySelector('.close')!.addEventListener('click', () => this.hideSettings());
+    this.helpEl.addEventListener('click', () => this.hideHelp()); // фон и кнопка — оба закрывают
   }
 
   /** вернул true, если настройки были открыты (клик переключает) */
@@ -103,6 +122,24 @@ export class Screens {
   }
   settingsOpen(): boolean {
     return !this.settingsEl.classList.contains('hidden');
+  }
+
+  /** панель «?» (кнопка info / клавиша H) — клик в любом месте закрывает */
+  toggleHelp(): boolean {
+    if (!this.helpEl.classList.contains('hidden')) {
+      this.hideHelp();
+      return false;
+    }
+    this.helpEl.classList.remove('hidden');
+    return true;
+  }
+  hideHelp(): void {
+    if (this.helpEl.classList.contains('hidden')) return;
+    this.helpEl.classList.add('hidden');
+    this.onHelpClosed();
+  }
+  helpOpen(): boolean {
+    return !this.helpEl.classList.contains('hidden');
   }
 
   hideIntro(): void {

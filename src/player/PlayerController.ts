@@ -36,10 +36,12 @@ export class PlayerController {
   readonly vel = new Vector3();
   /** текущая «желаемая» для визуала скорость */
   readonly desiredVel = new Vector3();
-  /** экранная «верх» ортогональна d — параллельно переносимый ref (для камеры = up) */
+  /** экранное «вверх» ортогонально d — ref параллельного переноса (для камеры = up) */
   readonly upRef = new Vector3(0, 0, -1);
   boostMeter: number = PLAYER.BOOST_MAX;
   boosting = false;
+  /** шкала пуста: буст заблокирован, пока не наполнится до BOOST_REARM (гистерезис) */
+  boostDepleted = false;
   dashTimer = 0;
   dashCooldown = 0;
   /** 0..1 — боковой крен для banking */
@@ -74,6 +76,7 @@ export class PlayerController {
     this.desiredVel.set(0, 0, 0);
     this.boostMeter = PLAYER.BOOST_MAX;
     this.boosting = false;
+    this.boostDepleted = false;
     this.dashTimer = 0;
     this.dashCooldown = 0;
     this.bank = 0;
@@ -113,22 +116,34 @@ export class PlayerController {
     // --- проклятие красного духа: тяга урезана, SHIFT/рывок недоступны ---
     if (this.curseTimer > 0) this.curseTimer = Math.max(0, this.curseTimer - sdt);
     const cursed = this.curseTimer > 0;
+    const moving = Math.abs(input.x) + Math.abs(input.y) > 0.05;
 
-    // --- boost ---
-    const wantBoost = input.boost && !cursed && this.boostMeter > PLAYER.BOOST_MIN_USE
-      && (Math.abs(input.x) + Math.abs(input.y) > 0.05);
+    // --- boost (с гистерезисом) ---
+    // Баг, который тут лечится: без boostDepleted при зажатом SHIFT метр
+    // сливался до BOOST_MIN_USE → wantBoost=false → regen → >MIN_USE → снова
+    // слив… Визуально — «замерло на 12%, не восстанавливается».
+    // Теперь: опустошил — флаг; пока держишь, шкала растёт до BOOST_REARM и
+    // ускорение возвращается САМО; отпустил SHIFT — флаг снимается сразу.
+    if (!input.boost) this.boostDepleted = false;
+    else if (this.boostDepleted && this.boostMeter >= PLAYER.BOOST_REARM) this.boostDepleted = false;
+    const wantBoost = input.boost && !cursed && !this.boostDepleted
+      && this.boostMeter > PLAYER.BOOST_MIN_USE && moving;
     this.boosting = wantBoost;
-    if (wantBoost) this.boostMeter = Math.max(0, this.boostMeter - PLAYER.BOOST_DRAIN * sdt);
-    else this.boostMeter = Math.min(PLAYER.BOOST_MAX, this.boostMeter + PLAYER.BOOST_REGEN * sdt);
+    if (wantBoost) {
+      this.boostMeter = Math.max(0, this.boostMeter - PLAYER.BOOST_DRAIN * sdt);
+      if (this.boostMeter <= PLAYER.BOOST_MIN_USE) this.boostDepleted = true;
+    } else {
+      this.boostMeter = Math.min(PLAYER.BOOST_MAX, this.boostMeter + PLAYER.BOOST_REGEN * sdt);
+    }
 
     // --- dash ---
     this.dashCooldown = Math.max(0, this.dashCooldown - sdt);
-    if (input.dash && !cursed && this.dashCooldown <= 0 && (Math.abs(input.x) + Math.abs(input.y) > 0.05)) {
+    if (input.dash && !cursed && this.dashCooldown <= 0 && moving) {
       this.dashTimer = PLAYER.DASH_DURATION;
       this.dashCooldown = PLAYER.DASH_COOLDOWN;
     }
     const dashActive = this.dashTimer > 0 && !cursed;
-    if (dashActive) this.dashTimer -= sdt;
+    if (this.dashTimer > 0) this.dashTimer -= sdt; // тикает и под проклятием — не «замораживается»
 
     // --- desired velocity в касательной плоскости ---
     const base = PLAYER.BASE_YAW_SPEED * orbitRadius * (cursed ? PLAYER.CURSE_SLOW : 1);
